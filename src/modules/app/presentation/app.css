@@ -1,10 +1,11 @@
 :root {
-  --toolbar-height: 76px;
+  --toolbar-height: 40px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --black: #000000;
   --white: #ffffff;
-  --toolbar-bg: rgba(0, 0, 0, 0.92);
-  --toolbar-active: #ff0000;
+  --toolbar-bg: rgba(0, 0, 0, 0.9);
+  --toolbar-active: #4caf50;
+  --toolbar-analysis-active: #ff9800;
 }
 
 * {
@@ -124,17 +125,19 @@ button {
   height: calc(var(--toolbar-height) + var(--safe-bottom));
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  align-items: start;
-  padding: 8px 8px var(--safe-bottom);
+  align-items: center;
+  padding: 0 6px var(--safe-bottom);
   background: var(--toolbar-bg);
 }
 
 .toolbar-button {
   min-width: 0;
-  height: 56px;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
+  justify-self: center;
   opacity: 0.96;
 }
 
@@ -142,113 +145,178 @@ button {
   color: var(--toolbar-active);
 }
 
+.toolbar-button[data-feature="analysis"].active .toolbar-icon {
+  color: var(--toolbar-analysis-active);
+}
+
 .toolbar-icon {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 24px;
+  height: 24px;
   color: var(--white);
-  font-size: 37px;
-  font-weight: 800;
+  font-size: 23px;
+  font-weight: 700;
   line-height: 1;
+}
+
+.toolbar-button[data-feature="map"] .toolbar-icon {
+  width: 22px;
+  height: 22px;
+  overflow: hidden;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  color: var(--white);
+  font-size: 0;
+}
+
+.toolbar-button[data-feature="map"] .toolbar-icon::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translateY(-50%);
+}
+
+.toolbar-button[data-feature="map"] .toolbar-icon::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  top: 2px;
+  bottom: 2px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
 }
 
 .search-icon::before {
   content: "";
-  width: 22px;
-  height: 22px;
-  border: 5px solid currentColor;
+  width: 13px;
+  height: 13px;
+  border: 3px solid currentColor;
   border-radius: 50%;
-  transform: translate(-3px, -3px);
+  transform: translate(-2px, -2px);
 }
 
 .search-icon::after {
   content: "";
   position: absolute;
-  width: 18px;
-  height: 5px;
+  width: 11px;
+  height: 3px;
   border-radius: 999px;
   background: currentColor;
-  transform: translate(12px, 13px) rotate(45deg);
+  transform: translate(8px, 8px) rotate(45deg);
+}
+
+.toolbar-button[data-feature="media"] .toolbar-icon {
+  width: 23.4px;
+  height: 23.4px;
+  font-size: 23.4px;
+  font-weight: 700;
 }
 
 .youtube-play {
-  width: 43px;
-  height: 30px;
-  border-radius: 8px;
+  width: 23.4px;
+  height: 16.4px;
+  border-radius: 3.5px;
   background: #ff0000;
 }
 
 .youtube-play::before {
   content: "";
-  margin-left: 4px;
+  margin-left: 2px;
   width: 0;
   height: 0;
-  border-top: 8px solid transparent;
-  border-bottom: 8px solid transparent;
-  border-left: 13px solid var(--white);
+  border-top: 5.6px solid transparent;
+  border-bottom: 5.6px solid transparent;
+  border-left: 9.4px solid var(--white);
+}
+
+.toolbar-button[data-feature="mic"] .toolbar-icon {
+  width: 23px;
+  height: 23px;
 }
 
 .mic-off-icon::before {
   content: "";
   position: absolute;
-  width: 13px;
-  height: 25px;
-  border: 4px solid currentColor;
+  width: 7px;
+  height: 14px;
+  border: 2.5px solid currentColor;
   border-radius: 999px;
-  top: 4px;
+  top: 3px;
 }
 
 .mic-off-icon::after {
   content: "";
   position: absolute;
-  width: 38px;
-  height: 5px;
+  width: 24px;
+  height: 3px;
   border-radius: 999px;
   background: currentColor;
   transform: rotate(45deg);
 }
 
+.toolbar-button[data-feature="drawing"] .toolbar-icon {
+  width: 24px;
+  height: 24px;
+  font-size: 0;
+}
+
 .pencil-icon::before {
-  content: "";
-  width: 29px;
-  height: 7px;
-  border: 3px solid currentColor;
-  border-right-width: 8px;
-  transform: rotate(-28deg);
+  content: "✎";
+  color: currentColor;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 24px;
+  transform: rotate(120deg);
 }
 
 .columns-icon {
-  gap: 4px;
+  width: 22px;
+  height: 22px;
 }
 
 .columns-icon::before {
   content: "";
-  width: 7px;
-  height: 30px;
+  width: 5px;
+  height: 17px;
   background: currentColor;
-  box-shadow: 12px 0 0 currentColor, 24px 0 0 currentColor;
+  box-shadow: 8px 0 0 currentColor, 16px 0 0 currentColor;
+}
+
+.toolbar-button[data-feature="chat"] .toolbar-icon {
+  width: 26px;
+  height: 26px;
 }
 
 .chat-icon::before {
   content: "";
-  width: 34px;
-  height: 27px;
-  border-radius: 6px;
-  background: currentColor;
+  width: 22px;
+  height: 16px;
+  border-radius: 3px;
+  background:
+    radial-gradient(circle, #000 0 1.6px, transparent 1.8px) 5px 7px / 5px 5px no-repeat,
+    radial-gradient(circle, #000 0 1.6px, transparent 1.8px) 10.5px 7px / 5px 5px no-repeat,
+    radial-gradient(circle, #000 0 1.6px, transparent 1.8px) 16px 7px / 5px 5px no-repeat,
+    currentColor;
 }
 
 .chat-icon::after {
   content: "";
   position: absolute;
-  right: 4px;
-  bottom: 4px;
+  left: 5px;
+  top: 19px;
   width: 0;
   height: 0;
-  border-left: 9px solid transparent;
-  border-top: 10px solid currentColor;
+  border-top: 3px solid currentColor;
+  border-right: 3px solid transparent;
 }
 
 @media (display-mode: standalone) {
