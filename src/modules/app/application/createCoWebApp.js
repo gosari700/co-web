@@ -72,6 +72,19 @@ export function createCoWebApp({ root }) {
     },
   });
 
+  const canAutoStartCamera = async () => {
+    if (!navigator.permissions?.query) {
+      return false;
+    }
+
+    try {
+      const cameraPermission = await navigator.permissions.query({ name: 'camera' });
+      return cameraPermission.state === 'granted';
+    } catch {
+      return false;
+    }
+  };
+
   return {
     async start() {
       render();
@@ -80,7 +93,9 @@ export function createCoWebApp({ root }) {
       elements.startCameraButton.addEventListener('click', () => {
         void camera.start();
       });
-      await camera.start();
+      if (await canAutoStartCamera()) {
+        void camera.start();
+      }
     },
     stop() {
       camera.stop();
