@@ -1,29 +1,7 @@
-const CACHE_NAME = 'co-web-shell-v4';
-const APP_SHELL = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-  '/src/main.js',
-  '/src/modules/app/presentation/app.css',
-  '/src/modules/app/application/createCoWebApp.js',
-  '/src/modules/app/domain/createAppState.js',
-  '/src/modules/camera/application/createCameraController.js',
-  '/src/modules/camera/domain/cameraState.js',
-  '/src/modules/pwa/application/createPwaController.js',
-  '/src/modules/settings/domain/apiKeyStore.js',
-  '/src/modules/toolbar/application/createToolbarController.js',
-  '/src/modules/toolbar/domain/toolbarFeatures.js',
-  '/public/icons/icon-192.png',
-  '/public/icons/icon-512.png',
-  '/public/icons/maskable-512.png'
-];
+const CACHE_PREFIX = 'co-web-shell-';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
@@ -31,50 +9,9 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
+          .filter((key) => key.startsWith(CACHE_PREFIX))
           .map((key) => caches.delete(key)),
       ))
-      .then(() => self.clients.claim()),
-  );
-});
-
-function cacheResponse(request, response) {
-  if (!response || response.status >= 400) {
-    return response;
-  }
-
-  const responseForCache = response.clone();
-  caches.open(CACHE_NAME).then((cache) => {
-    cache.put(request, responseForCache);
-  });
-  return response;
-}
-
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-  if (request.method !== 'GET') {
-    return;
-  }
-
-  const requestUrl = new URL(request.url);
-  if (requestUrl.origin !== self.location.origin) {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(request)
-        .then((response) => cacheResponse(request, response))
-        .catch(() => {
-          if (request.mode === 'navigate') {
-            return caches.match('/index.html');
-          }
-          throw new Error('Network unavailable');
-        });
-    }),
+      .then(() => self.registration.unregister()),
   );
 });
