@@ -13,6 +13,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+      VERCEL_AUTH_JSON_B64: ${{ secrets.VERCEL_AUTH_JSON_B64 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +29,7 @@ jobs:
       - name: Restore Vercel CLI auth
         run: |
           mkdir -p "$XDG_DATA_HOME/com.vercel.cli"
-          printf '%s' '${{ secrets.VERCEL_AUTH_JSON_B64 }}' | base64 -d > "$XDG_DATA_HOME/com.vercel.cli/auth.json"
+          printf '%s' "$VERCEL_AUTH_JSON_B64" | base64 -d > "$XDG_DATA_HOME/com.vercel.cli/auth.json"
 
       - name: Pull Vercel project settings
         run: npx vercel pull --yes --environment=production
