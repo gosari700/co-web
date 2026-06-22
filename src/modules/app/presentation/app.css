@@ -54,6 +54,10 @@ button {
   background: var(--black);
 }
 
+.co-app:not([data-camera-state="ready"]) .camera-preview {
+  opacity: 0;
+}
+
 .permission-panel {
   position: absolute;
   left: 18px;

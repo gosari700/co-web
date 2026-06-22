@@ -8,3 +8,6 @@ local.env
 .env
 .env.*
 !.env.example
+android/.gradle
+android/local.properties
+android/**/build
