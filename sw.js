@@ -1,4 +1,4 @@
-const CACHE_NAME = 'co-web-shell-v2';
+const CACHE_NAME = 'co-web-shell-v3';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -38,6 +38,18 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+function cacheResponse(request, response) {
+  if (!response || response.status >= 400) {
+    return response;
+  }
+
+  const responseForCache = response.clone();
+  caches.open(CACHE_NAME).then((cache) => {
+    cache.put(request, responseForCache);
+  });
+  return response;
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') {
@@ -50,22 +62,26 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    fetch(request)
-      .then((response) => {
-        const responseForCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, responseForCache);
-        });
-        return response;
-      })
-      .catch(() => caches.match(request).then((cached) => {
-        if (cached) {
-          return cached;
+    caches.match(request).then((cached) => {
+      const networkResponse = fetch(request)
+        .then((response) => cacheResponse(request, response))
+        .catch(() => null);
+
+      event.waitUntil(networkResponse);
+
+      if (cached) {
+        return cached;
+      }
+
+      return networkResponse.then((response) => {
+        if (response) {
+          return response;
         }
         if (request.mode === 'navigate') {
           return caches.match('/index.html');
         }
         throw new Error('Network unavailable');
-      })),
+      });
+    }),
   );
 });

@@ -1,5 +1,6 @@
 export const CAMERA_STATUS = Object.freeze({
   booting: 'booting',
+  idle: 'idle',
   ready: 'ready',
   error: 'error',
 });

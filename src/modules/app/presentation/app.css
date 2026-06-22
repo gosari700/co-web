@@ -130,6 +130,11 @@ button {
   background: var(--toolbar-bg);
 }
 
+.co-app[data-camera-state="booting"] .permission-panel,
+.co-app[data-camera-state="booting"] .bottom-toolbar {
+  display: none;
+}
+
 .toolbar-button {
   min-width: 0;
   width: 38px;
