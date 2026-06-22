@@ -34,6 +34,12 @@ jobs:
       - name: Refresh Vercel CLI auth
         run: node scripts/refresh-vercel-auth.js
 
+      - name: Persist refreshed Vercel CLI auth
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRET_SYNC_TOKEN }}
+        run: |
+          base64 -w0 "$XDG_DATA_HOME/com.vercel.cli/auth.json" | gh secret set VERCEL_AUTH_JSON_B64 --repo "$GITHUB_REPOSITORY"
+
       - name: Pull Vercel project settings
         run: npx vercel pull --yes --environment=production
 
