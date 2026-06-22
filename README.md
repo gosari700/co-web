@@ -1,32 +1,29 @@
 # co-web
 
-`co-second`의 웹앱 버전입니다. 배포 파일에는 Gemini API 키를 넣지 않습니다.
-사용자는 웹앱 안의 키 설정 창에서 자기 API 키를 입력하고, 그 값은 해당 브라우저의
-`localStorage`에만 저장됩니다.
+`co-second`를 웹으로 다시 올리기 위한 깨끗한 PWA 기반입니다.
 
-## 기능 범위
+이번 리셋의 원칙:
 
-- 카메라/마이크 기반 Gemini Live 대화
-- 한국어/영어 입력창, 250ms 자동 번역, 영어 음성 2회 읽기
-- Gemini TTS 실패 시 브라우저 음성 합성 fallback
-- AI 말풍선 번역/직역/다시 읽기/고정
-- 선택 영역 분석
-- 드로잉, 수학 `=` 박스, 자연어 필기 설명 박스
-- 단어 사전 링크
-- 지도, 미디어 파일, YouTube 오버레이
-- 채팅 스냅샷 저장
+- 기존 정적 프로토타입 기능은 제거했습니다.
+- `co-second`와 화면을 맞추기 위해 첫 화면은 카메라 전체 화면과 하단 툴바만 둡니다.
+- 기능은 DDD 스타일 모듈 경계 안에서 하나씩 추가합니다.
+- API 키는 저장소, Vercel, GitHub Actions에 넣지 않습니다.
+- PWA 설치 조건을 맞춰 핸드폰 Chrome에서 홈 화면 아이콘으로 열 수 있게 합니다.
 
-## 로컬 실행
+## 현재 단계
 
-정적 파일이므로 별도 빌드 없이 실행할 수 있습니다.
+1. App shell
+2. Camera preview
+3. Native-like bottom toolbar placeholders
+4. PWA manifest/service worker/install prompt
+5. API key local storage 모듈 자리
 
-```bash
-python3 -m http.server 4173
-```
+## 다음 단계
 
-그 다음 `http://localhost:4173`을 엽니다.
-
-## 배포
-
-GitHub 저장소를 Vercel 프로젝트로 Import하면 `main` 브랜치에 푸시될 때마다 자동 배포됩니다.
-Vercel 환경 변수에 개인 API 키를 넣을 필요가 없습니다.
+1. Gemini API key 입력 화면
+2. Gemini Live 연결
+3. Chat panel
+4. Input translation/TTS
+5. Drawing
+6. Selection analysis
+7. Map/Media/YouTube

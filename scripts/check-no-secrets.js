@@ -1,12 +1,13 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
 const ignored = new Set(['.git', '.vercel', 'node_modules', 'dist', 'coverage']);
 const secretPatterns = [
   /AIza[0-9A-Za-z_-]{20,}/g,
   /GEMINI_API_KEY\s*=\s*["'][^"']+["']/g,
-  /apiKey\s*:\s*["']AIza[0-9A-Za-z_-]{20,}["']/g,
+  /apiKey\s*[:=]\s*["']AIza[0-9A-Za-z_-]{20,}["']/g,
+  /VERCEL_TOKEN\s*[:=]\s*["'][^"']+["']/g,
 ];
 
 async function listFiles(dir) {
@@ -20,9 +21,10 @@ async function listFiles(dir) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listFiles(path));
-    } else {
-      files.push(path);
+      continue;
     }
+
+    files.push(path);
   }
   return files;
 }
@@ -33,7 +35,7 @@ for (const file of await listFiles(root)) {
   for (const pattern of secretPatterns) {
     pattern.lastIndex = 0;
     if (pattern.test(text)) {
-      console.error(`Secret-like value found in ${file}`);
+      console.error(`Secret-like value found in ${relative(root, file)}`);
       failed = true;
     }
   }

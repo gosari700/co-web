@@ -1,0 +1,258 @@
+:root {
+  --toolbar-height: 76px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --black: #000000;
+  --white: #ffffff;
+  --toolbar-bg: rgba(0, 0, 0, 0.92);
+  --toolbar-active: #ff0000;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--black);
+  color: var(--white);
+  font-family: Arial, "Noto Sans KR", sans-serif;
+  touch-action: manipulation;
+}
+
+button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.co-app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--black);
+}
+
+.camera-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--black);
+}
+
+.camera-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--black);
+}
+
+.permission-panel {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 50%;
+  z-index: 20;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.permission-panel[hidden] {
+  display: none;
+}
+
+.permission-panel strong {
+  font-size: 18px;
+}
+
+.permission-panel span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 14px;
+}
+
+.permission-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.permission-actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.16);
+  font-weight: 700;
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--toolbar-height) + var(--safe-bottom) + 18px);
+  z-index: 40;
+  transform: translateX(-50%);
+  max-width: calc(100% - 28px);
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.82);
+  color: var(--white);
+  font-size: 14px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.bottom-toolbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  height: calc(var(--toolbar-height) + var(--safe-bottom));
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  align-items: start;
+  padding: 8px 8px var(--safe-bottom);
+  background: var(--toolbar-bg);
+}
+
+.toolbar-button {
+  min-width: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.96;
+}
+
+.toolbar-button.active .toolbar-icon {
+  color: var(--toolbar-active);
+}
+
+.toolbar-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  color: var(--white);
+  font-size: 37px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.search-icon::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  border: 5px solid currentColor;
+  border-radius: 50%;
+  transform: translate(-3px, -3px);
+}
+
+.search-icon::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translate(12px, 13px) rotate(45deg);
+}
+
+.youtube-play {
+  width: 43px;
+  height: 30px;
+  border-radius: 8px;
+  background: #ff0000;
+}
+
+.youtube-play::before {
+  content: "";
+  margin-left: 4px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 13px solid var(--white);
+}
+
+.mic-off-icon::before {
+  content: "";
+  position: absolute;
+  width: 13px;
+  height: 25px;
+  border: 4px solid currentColor;
+  border-radius: 999px;
+  top: 4px;
+}
+
+.mic-off-icon::after {
+  content: "";
+  position: absolute;
+  width: 38px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+.pencil-icon::before {
+  content: "";
+  width: 29px;
+  height: 7px;
+  border: 3px solid currentColor;
+  border-right-width: 8px;
+  transform: rotate(-28deg);
+}
+
+.columns-icon {
+  gap: 4px;
+}
+
+.columns-icon::before {
+  content: "";
+  width: 7px;
+  height: 30px;
+  background: currentColor;
+  box-shadow: 12px 0 0 currentColor, 24px 0 0 currentColor;
+}
+
+.chat-icon::before {
+  content: "";
+  width: 34px;
+  height: 27px;
+  border-radius: 6px;
+  background: currentColor;
+}
+
+.chat-icon::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-top: 10px solid currentColor;
+}
+
+@media (display-mode: standalone) {
+  .co-app {
+    inset: 0;
+  }
+}
