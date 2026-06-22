@@ -31,6 +31,9 @@ jobs:
           mkdir -p "$XDG_DATA_HOME/com.vercel.cli"
           printf '%s' "$VERCEL_AUTH_JSON_B64" | base64 -d > "$XDG_DATA_HOME/com.vercel.cli/auth.json"
 
+      - name: Refresh Vercel CLI auth
+        run: node scripts/refresh-vercel-auth.js
+
       - name: Pull Vercel project settings
         run: npx vercel pull --yes --environment=production
 

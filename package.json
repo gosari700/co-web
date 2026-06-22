@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node scripts/check-no-secrets.js && node --check src/main.js && node --check sw.js",
+    "check": "node scripts/check-no-secrets.js && node --check src/main.js && node --check sw.js && node --check scripts/refresh-vercel-auth.js",
     "build": "npm run check"
   }
 }
