@@ -12,7 +12,7 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+      XDG_DATA_HOME: /tmp/co-web-vercel-xdg
       VERCEL_AUTH_JSON_B64: ${{ secrets.VERCEL_AUTH_JSON_B64 }}
     steps:
       - name: Checkout
