@@ -1,4 +1,4 @@
-const CACHE_NAME = 'co-web-shell-v3';
+const CACHE_NAME = 'co-web-shell-v4';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -63,25 +63,18 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(request).then((cached) => {
-      const networkResponse = fetch(request)
-        .then((response) => cacheResponse(request, response))
-        .catch(() => null);
-
-      event.waitUntil(networkResponse);
-
       if (cached) {
         return cached;
       }
 
-      return networkResponse.then((response) => {
-        if (response) {
-          return response;
-        }
-        if (request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-        throw new Error('Network unavailable');
-      });
+      return fetch(request)
+        .then((response) => cacheResponse(request, response))
+        .catch(() => {
+          if (request.mode === 'navigate') {
+            return caches.match('/index.html');
+          }
+          throw new Error('Network unavailable');
+        });
     }),
   );
 });

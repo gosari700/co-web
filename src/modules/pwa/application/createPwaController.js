@@ -11,6 +11,9 @@ export function createPwaController({
     if (!('serviceWorker' in navigator)) {
       return;
     }
+    if (state.pwa.isStandalone && navigator.serviceWorker.controller) {
+      return;
+    }
 
     try {
       await navigator.serviceWorker.register('/sw.js');
