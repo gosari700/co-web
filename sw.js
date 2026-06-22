@@ -12,6 +12,6 @@ self.addEventListener('activate', (event) => {
           .filter((key) => key.startsWith(CACHE_PREFIX))
           .map((key) => caches.delete(key)),
       ))
-      .then(() => self.registration.unregister()),
+      .then(() => self.clients.claim()),
   );
 });
