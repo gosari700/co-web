@@ -15,3 +15,5 @@ self.addEventListener('activate', (event) => {
       .then(() => self.clients.claim()),
   );
 });
+
+self.addEventListener('fetch', () => {});

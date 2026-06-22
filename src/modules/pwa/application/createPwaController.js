@@ -7,6 +7,18 @@ export function createPwaController({
     installButton.hidden = state.pwa.isStandalone || !state.pwa.installPrompt;
   }
 
+  async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator) || state.pwa.isStandalone) {
+      return;
+    }
+
+    try {
+      await navigator.serviceWorker.register('/sw.js');
+    } catch (error) {
+      console.warn('[co-web] service worker registration failed:', error);
+    }
+  }
+
   function bindInstallPrompt() {
     window.addEventListener('beforeinstallprompt', (event) => {
       event.preventDefault();
@@ -38,6 +50,9 @@ export function createPwaController({
     start() {
       bindInstallPrompt();
       updateInstallButton();
+      window.setTimeout(() => {
+        void registerServiceWorker();
+      }, 1500);
     },
   };
 }
