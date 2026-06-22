@@ -1,0 +1,10 @@
+{
+  "name": "co-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check app.js && node scripts/check-no-secrets.js",
+    "build": "node scripts/check-no-secrets.js"
+  }
+}

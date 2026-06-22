@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>co-web</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <header class="top-bar">
+        <div class="brand">
+          <strong>co-web</strong>
+          <span id="live-status" class="status-pill">키 필요</span>
+        </div>
+        <div class="top-actions">
+          <button type="button" class="icon-btn" data-action="reconnect-live" title="Live 다시 연결">↻</button>
+          <button type="button" class="icon-btn" data-action="open-key" title="API 키">키</button>
+        </div>
+      </header>
+
+      <main id="stage" class="stage">
+        <video id="camera-video" class="camera-video" autoplay playsinline muted></video>
+        <div id="camera-empty" class="camera-empty">
+          <strong>카메라 준비 중</strong>
+          <span>권한을 허용하면 native 앱처럼 카메라와 마이크가 Live 세션에 연결됩니다.</span>
+          <button type="button" data-action="start-camera">카메라 시작</button>
+        </div>
+
+        <section id="map-screen" class="feature-screen hidden" aria-label="지도">
+          <div class="feature-header">
+            <strong id="map-title">Google 지도</strong>
+            <div class="feature-actions">
+              <button type="button" data-action="map-provider">Google/Kakao</button>
+              <button type="button" data-action="map-size">1/2</button>
+              <button type="button" data-action="close-map">닫기</button>
+            </div>
+          </div>
+          <form id="map-search-form" class="inline-form">
+            <input id="map-search-input" type="search" placeholder="장소, 주소, 주변 검색" autocomplete="off" />
+            <button type="submit">검색</button>
+          </form>
+          <iframe id="map-frame" class="map-frame" title="지도" referrerpolicy="no-referrer-when-downgrade"></iframe>
+          <div class="map-tools">
+            <button type="button" data-action="map-current">현재 위치</button>
+            <button type="button" data-action="map-measure">거리</button>
+            <button type="button" data-action="map-walk">도보</button>
+            <button type="button" data-action="map-car">차량</button>
+          </div>
+        </section>
+
+        <section id="media-screen" class="feature-screen hidden" aria-label="미디어">
+          <div class="feature-header">
+            <strong>미디어</strong>
+            <div class="feature-actions">
+              <button type="button" data-action="open-browser">브라우저</button>
+              <button type="button" data-action="close-media">닫기</button>
+            </div>
+          </div>
+          <div class="media-picker-row">
+            <label class="file-btn">
+              파일 선택
+              <input id="media-file-input" type="file" accept="image/*,video/*,application/pdf" multiple />
+            </label>
+            <button type="button" data-action="media-aspect">비율</button>
+            <button type="button" data-action="media-fit">맞춤</button>
+          </div>
+          <div id="media-library" class="media-library"></div>
+          <div id="media-viewport" class="media-viewport">
+            <div class="empty-state">이미지, 동영상, PDF를 선택하세요.</div>
+          </div>
+          <div class="media-controls">
+            <button type="button" data-action="media-play">▶/Ⅱ</button>
+            <button type="button" data-action="media-back">-5s</button>
+            <button type="button" data-action="media-forward">+5s</button>
+            <button type="button" data-action="media-speed">속도</button>
+            <button type="button" data-action="media-volume-down">Vol-</button>
+            <button type="button" data-action="media-volume-up">Vol+</button>
+          </div>
+        </section>
+
+        <section id="browser-screen" class="feature-screen hidden" aria-label="브라우저">
+          <div class="feature-header">
+            <strong>브라우저</strong>
+            <button type="button" data-action="close-browser">닫기</button>
+          </div>
+          <form id="browser-form" class="inline-form">
+            <input id="browser-url-input" type="url" placeholder="https://example.com" autocomplete="off" />
+            <button type="submit">이동</button>
+          </form>
+          <iframe id="browser-frame" class="browser-frame" title="브라우저"></iframe>
+        </section>
+
+        <section id="youtube-screen" class="feature-screen hidden" aria-label="유튜브">
+          <div class="feature-header">
+            <strong>YouTube</strong>
+            <div class="feature-actions">
+              <button type="button" data-action="youtube-fullscreen">전체</button>
+              <button type="button" data-action="close-youtube">닫기</button>
+            </div>
+          </div>
+          <form id="youtube-form" class="inline-form">
+            <input id="youtube-url-input" type="text" placeholder="YouTube 주소 또는 영상 ID" autocomplete="off" />
+            <button type="submit">열기</button>
+          </form>
+          <iframe id="youtube-frame" class="youtube-frame" title="YouTube" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe>
+          <div id="youtube-note" class="feature-note">YouTube 영상 픽셀은 브라우저 보안 정책상 직접 캡처되지 않을 수 있어 영상 ID/제목 컨텍스트를 Live 세션에 전달합니다.</div>
+        </section>
+
+        <canvas id="draw-canvas" class="draw-canvas"></canvas>
+
+        <div id="selection-layer" class="selection-layer hidden">
+          <div id="selection-rect" class="selection-rect"></div>
+          <div class="selection-actions">
+            <button type="button" data-action="confirm-selection">분석</button>
+            <button type="button" data-action="cancel-selection">취소</button>
+          </div>
+        </div>
+
+        <aside id="top-box" class="top-box hidden"></aside>
+
+        <section id="chat-panel" class="chat-panel hidden" aria-label="채팅">
+          <div class="chat-header">
+            <button type="button" class="chat-header-btn" data-action="chat-transparent">투명</button>
+            <button type="button" class="chat-header-btn" data-action="chat-appearance">색</button>
+            <button type="button" class="chat-header-btn" data-action="chat-save">저장</button>
+            <button type="button" class="chat-header-btn" data-action="chat-library">목록</button>
+            <button type="button" class="chat-header-btn" data-action="chat-min">▁</button>
+            <button type="button" class="chat-header-btn" data-action="chat-expand">▣</button>
+            <button type="button" class="chat-header-btn" data-action="chat-clear">삭제</button>
+          </div>
+          <div id="appearance-editor" class="appearance-editor hidden">
+            <label>패널 <input type="color" id="color-panel" value="#222222" /></label>
+            <label>AI 글자 <input type="color" id="color-ai-text" value="#ffffff" /></label>
+            <label>내 글자 <input type="color" id="color-user-text" value="#ffffff" /></label>
+            <button type="button" data-action="appearance-reset">초기화</button>
+          </div>
+          <div id="pinned-message" class="pinned-message hidden"></div>
+          <div id="message-list" class="message-list"></div>
+        </section>
+
+        <section id="input-overlay" class="input-overlay hidden" aria-label="입력창">
+          <div class="input-card">
+            <div id="language-panel" class="language-panel hidden">
+              <button type="button" data-action="cycle-target"><span>위 번역</span><strong id="target-label">영어</strong></button>
+              <button type="button" data-action="swap-languages">⇄</button>
+              <button type="button" data-action="cycle-source"><span>아래 입력</span><strong id="source-label">한국어</strong></button>
+            </div>
+            <textarea id="input-text" rows="4" placeholder="메시지를 입력하세요..."></textarea>
+            <div id="translated-text" class="translated-text"></div>
+            <div class="input-toolbar">
+              <button type="button" data-action="toggle-input-mic" title="입력 마이크">🎤</button>
+              <button type="button" data-action="refine-input" title="다듬기">✨</button>
+              <button type="button" data-action="translate-input" title="번역">Aa</button>
+              <button type="button" data-action="toggle-language-panel" title="언어">번역</button>
+              <button type="button" data-action="speak-input" title="읽기">🔊</button>
+              <button type="button" data-action="clear-input" title="지우기">⌫</button>
+              <button type="button" data-action="submit-input" title="전송">▶</button>
+              <button type="button" data-action="close-input" title="닫기">닫기</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="drawing-toolbar" class="drawing-toolbar hidden" aria-label="드로잉">
+          <button type="button" id="color-chip" data-action="toggle-palette" title="색상"></button>
+          <input id="thickness-range" type="range" min="1" max="20" value="5" />
+          <span id="thickness-label">5</span>
+          <button type="button" data-tool="pen">펜</button>
+          <button type="button" data-tool="eraser">지우개</button>
+          <button type="button" data-tool="line">선</button>
+          <button type="button" data-tool="rect">□</button>
+          <button type="button" data-tool="circle">○</button>
+          <button type="button" data-tool="arrow">→</button>
+          <button type="button" data-tool="equal">=</button>
+          <button type="button" data-action="draw-undo">↶</button>
+          <button type="button" data-action="draw-redo">↷</button>
+          <button type="button" data-action="draw-clear">삭제</button>
+          <div id="palette" class="palette hidden"></div>
+        </section>
+
+        <nav class="bottom-toolbar">
+          <button type="button" data-action="toggle-map" title="지도">지도</button>
+          <button type="button" data-action="toggle-selection" title="선택 분석">검색</button>
+          <button type="button" data-action="toggle-media" title="미디어">미디어</button>
+          <button type="button" data-action="toggle-youtube" title="YouTube">YouTube</button>
+          <button type="button" data-action="toggle-recording-mic" title="메인 마이크">마이크</button>
+          <button type="button" data-action="toggle-drawing" title="드로잉">✎</button>
+          <button type="button" data-action="toggle-chat-side" title="세로줄">세로</button>
+          <button type="button" data-action="toggle-chat" title="채팅">채팅</button>
+        </nav>
+      </main>
+
+      <div id="dictionary-popup" class="dictionary-popup hidden">
+        <button type="button" data-action="close-dictionary">×</button>
+        <strong id="dictionary-word"></strong>
+        <a id="dictionary-link" href="#" target="_blank" rel="noreferrer">Daum 사전에서 보기</a>
+      </div>
+
+      <dialog id="key-dialog" class="key-dialog">
+        <form method="dialog" class="key-form">
+          <h2>Gemini API 키</h2>
+          <p>키는 GitHub나 Vercel에 저장되지 않고 이 브라우저에만 저장됩니다.</p>
+          <input id="api-key-input" type="password" autocomplete="off" placeholder="Gemini API key" />
+          <div class="dialog-actions">
+            <button type="button" data-action="clear-key">키 삭제</button>
+            <button type="button" data-action="save-key">저장</button>
+            <button type="submit">닫기</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="snapshot-dialog" class="snapshot-dialog">
+        <form method="dialog">
+          <h2>채팅 저장 목록</h2>
+          <div id="snapshot-list" class="snapshot-list"></div>
+          <div class="dialog-actions">
+            <button type="submit">닫기</button>
+          </div>
+        </form>
+      </dialog>
+    </div>
+
+    <canvas id="work-canvas" class="hidden"></canvas>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
