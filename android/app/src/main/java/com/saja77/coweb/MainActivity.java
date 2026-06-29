@@ -9,12 +9,15 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,15 +38,53 @@ public class MainActivity extends Activity {
 
   private void configureWindow() {
     Window window = getWindow();
-    window.setStatusBarColor(Color.BLACK);
-    window.setNavigationBarColor(Color.BLACK);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      window.setDecorFitsSystemWindows(false);
+    }
+    window.getDecorView().setBackgroundColor(Color.WHITE);
+    window.setStatusBarColor(Color.WHITE);
+    window.setNavigationBarColor(Color.WHITE);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.setStatusBarContrastEnforced(false);
+      window.setNavigationBarContrastEnforced(false);
+    }
+    setLightSystemBars(window);
+  }
+
+  private void setLightSystemBars(Window window) {
+    int flags = window.getDecorView().getSystemUiVisibility();
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+    }
+    window.getDecorView().setSystemUiVisibility(flags);
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+      return;
+    }
+
+    WindowInsetsController controller = window.getInsetsController();
+    if (controller == null) {
+      return;
+    }
+    int appearance = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+      | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+    controller.setSystemBarsAppearance(appearance, appearance);
   }
 
   private void configureWebView() {
+    FrameLayout container = createSystemBarContainer();
     webView = new WebView(this);
     webView.setBackgroundColor(Color.BLACK);
     webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-    setContentView(webView);
+    container.addView(webView, new FrameLayout.LayoutParams(
+      FrameLayout.LayoutParams.MATCH_PARENT,
+      FrameLayout.LayoutParams.MATCH_PARENT
+    ));
+    setContentView(container);
+    container.requestApplyInsets();
 
     WebSettings settings = webView.getSettings();
     settings.setJavaScriptEnabled(true);
@@ -76,6 +117,23 @@ public class MainActivity extends Activity {
         handlePermissionRequest(request);
       }
     });
+  }
+
+  private FrameLayout createSystemBarContainer() {
+    FrameLayout container = new FrameLayout(this);
+    container.setBackgroundColor(Color.WHITE);
+    container.setOnApplyWindowInsetsListener((view, insets) -> {
+      int topInset = insets.getSystemWindowInsetTop();
+      int bottomInset = insets.getSystemWindowInsetBottom();
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        android.graphics.Insets systemBars = insets.getInsets(WindowInsets.Type.systemBars());
+        topInset = systemBars.top;
+        bottomInset = systemBars.bottom;
+      }
+      view.setPadding(0, topInset, 0, bottomInset);
+      return insets;
+    });
+    return container;
   }
 
   private boolean shouldKeepInWebView(Uri uri) {
