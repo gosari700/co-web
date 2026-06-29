@@ -6,6 +6,7 @@
   --toolbar-bg: rgba(0, 0, 0, 0.9);
   --toolbar-active: #4caf50;
   --toolbar-analysis-active: #ff9800;
+  --toolbar-icon-scale: 0.7;
 }
 
 * {
@@ -169,6 +170,8 @@ button {
   font-size: 23px;
   font-weight: 700;
   line-height: 1;
+  transform: scale(var(--toolbar-icon-scale));
+  transform-origin: center;
 }
 
 .toolbar-button[data-feature="map"] .toolbar-icon {
