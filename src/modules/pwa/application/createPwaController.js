@@ -7,25 +7,16 @@ export function createPwaController({
     installButton.hidden = state.pwa.isStandalone || !state.pwa.installPrompt;
   }
 
-  async function clearServiceWorkers() {
-    if ('serviceWorker' in navigator) {
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      } catch (error) {
-        console.warn('[co-web] service worker cleanup failed:', error);
-      }
-    }
-
-    if (!window.caches?.keys) {
+  async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) {
       return;
     }
 
     try {
-      const keys = await window.caches.keys();
-      await Promise.all(keys.map((key) => window.caches.delete(key)));
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      await registration.update();
     } catch (error) {
-      console.warn('[co-web] cache cleanup failed:', error);
+      console.warn('[co-web] service worker registration failed:', error);
     }
   }
 
@@ -60,9 +51,7 @@ export function createPwaController({
     start() {
       bindInstallPrompt();
       updateInstallButton();
-      window.setTimeout(() => {
-        void clearServiceWorkers();
-      }, 1500);
+      void registerServiceWorker();
     },
   };
 }

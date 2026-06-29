@@ -1,10 +1,9 @@
 /*
- * co-web service worker kill switch.
+ * co-web network-only service worker.
  *
- * co-web should launch straight from black to the live camera. A service worker
- * can add a second page-load pass in Chrome/PWA startup, which shows as a top
- * loading line. This script exists only to remove any previously installed
- * worker/cache without forcing a reload.
+ * Chrome's installed PWA container needs a service worker to keep the launch in
+ * app display mode. This worker never caches camera/app responses; it only
+ * keeps the page controlled and lets every request pass through to the network.
  */
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -19,7 +18,7 @@ self.addEventListener('activate', (event) => {
       } catch {}
 
       try {
-        await self.registration.unregister();
+        await self.clients.claim();
       } catch {}
     })(),
   );
