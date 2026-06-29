@@ -59,6 +59,18 @@ button {
   opacity: 0;
 }
 
+.launch-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 10000;
+  background: var(--black);
+  pointer-events: none;
+}
+
+.co-app:not([data-camera-state="booting"]) .launch-cover {
+  display: none;
+}
+
 .permission-panel {
   position: absolute;
   left: 18px;

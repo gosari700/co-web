@@ -9,6 +9,25 @@
     <meta name="apple-mobile-web-app-title" content="co-web" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>co-web</title>
+    <style>
+      html,
+      body,
+      #app {
+        background: #000000;
+      }
+
+      video {
+        background-color: #000000 !important;
+      }
+
+      video::-webkit-media-controls,
+      video::-webkit-media-controls-enclosure,
+      video::-webkit-media-controls-panel,
+      video::-webkit-media-controls-start-playback-button,
+      video::-webkit-media-controls-overlay-play-button {
+        display: none !important;
+      }
+    </style>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/public/icons/icon-192.png" />
     <link rel="stylesheet" href="/src/modules/app/presentation/app.css" />
@@ -28,6 +47,7 @@
         </section>
 
         <section id="toast" class="toast" hidden></section>
+        <div class="launch-cover" aria-hidden="true"></div>
 
         <nav class="bottom-toolbar" aria-label="co-second 하단 툴바">
           <button type="button" class="toolbar-button" data-feature="map" aria-label="지도">

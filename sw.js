@@ -1,19 +1,30 @@
-const CACHE_PREFIX = 'co-web-shell-';
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(self.skipWaiting());
+/*
+ * co-web service worker kill switch.
+ *
+ * co-web should launch straight from black to the live camera. A service worker
+ * can add a second page-load pass in Chrome/PWA startup, which shows as a top
+ * loading line. This script exists only to remove any previously installed
+ * worker/cache without forcing a reload.
+ */
+self.addEventListener('install', () => {
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys
-          .filter((key) => key.startsWith(CACHE_PREFIX))
-          .map((key) => caches.delete(key)),
-      ))
-      .then(() => self.clients.claim()),
+    (async () => {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      } catch {}
+
+      try {
+        await self.registration.unregister();
+      } catch {}
+    })(),
   );
 });
 
-self.addEventListener('fetch', () => {});
+self.addEventListener('fetch', (event) => {
+  event.respondWith(fetch(event.request));
+});
