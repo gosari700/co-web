@@ -75,53 +75,17 @@ export function createCoWebApp({ root }) {
     },
   });
 
-  const canAutoStartCamera = async () => {
-    if (!navigator.permissions?.query) {
-      return false;
-    }
-
-    try {
-      const cameraPermission = await navigator.permissions.query({ name: 'camera' });
-      return cameraPermission.state === 'granted';
-    } catch {
-      return false;
-    }
-  };
-
-  let manualStartTimer = null;
-
-  const clearManualStartTimer = () => {
-    if (manualStartTimer) {
-      window.clearTimeout(manualStartTimer);
-      manualStartTimer = null;
-    }
-  };
-
-  const showManualCameraStart = () => {
-    manualStartTimer = null;
-    if (state.camera.status === CAMERA_STATUS.booting) {
-      state.camera.status = CAMERA_STATUS.idle;
-      render();
-    }
-  };
-
   return {
-    async start() {
+    start() {
       render();
       pwa.start();
       toolbar.start();
-      manualStartTimer = window.setTimeout(showManualCameraStart, 1000);
       elements.startCameraButton.addEventListener('click', () => {
-        clearManualStartTimer();
         void camera.start();
       });
-      if (await canAutoStartCamera()) {
-        clearManualStartTimer();
-        void camera.start();
-      }
+      void camera.start();
     },
     stop() {
-      clearManualStartTimer();
       camera.stop();
     },
   };
