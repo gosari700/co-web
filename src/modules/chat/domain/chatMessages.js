@@ -192,6 +192,20 @@ export function buildTypedUserTurn(text, languageCode = '') {
   ].join('\n');
 }
 
+export function buildLiveLanguageContext(text, languageCode) {
+  const selectedLanguageName = getChatLanguageName(languageCode);
+  if (!selectedLanguageName) {
+    return '';
+  }
+
+  return [
+    `[System] Latest spoken user utterance language: ${selectedLanguageName}.`,
+    `The assistant's response to this current utterance must be in ${selectedLanguageName} only, starting from the first word.`,
+    'This overrides older Korean, English, persona, dictionary, visual context, and conversation-history language.',
+    `Latest spoken transcript: ${text.trim()}`,
+  ].join('\n');
+}
+
 export function buildGroundedSearchHandoff(query, languageCode = '') {
   return getGroundedSearchMessages(query, languageCode).handoff;
 }

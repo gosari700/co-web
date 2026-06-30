@@ -9,7 +9,7 @@ export const REGISTERED_CHAT_LANGUAGE_NAMES = CHAT_TRANSLATION_LANGUAGES
 
 const LANGUAGE_DETECTION_PATTERNS = Object.freeze([
   { code: 'ko', pattern: /[가-힣ㄱ-ㅎㅏ-ㅣ]/ },
-  { code: 'ja', pattern: /[\u3040-\u30ff]/ },
+  { code: 'ja', pattern: /[\u3040-\u30ff]|日本語|日本人|東京|大阪|京都/ },
   { code: 'ar', pattern: /[\u0600-\u06ff]/ },
   { code: 'th', pattern: /[\u0e00-\u0e7f]/ },
   { code: 'hi', pattern: /[\u0900-\u097f]/ },

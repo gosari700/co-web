@@ -1,4 +1,7 @@
-import { REGISTERED_CHAT_LANGUAGE_NAMES } from './chatLanguage.js';
+import {
+  REGISTERED_CHAT_LANGUAGE_NAMES,
+  getChatLanguageName,
+} from './chatLanguage.js';
 
 function buildTodayString(date) {
   const year = date.getFullYear();
@@ -7,14 +10,18 @@ function buildTodayString(date) {
   return `${year}-${month}-${day}`;
 }
 
-export function buildLiveSystemPrompt(date = new Date()) {
+export function buildLiveSystemPrompt(date = new Date(), options = {}) {
   const today = buildTodayString(date);
   const year = date.getFullYear();
+  const lockedLanguageName = getChatLanguageName(options.responseLanguageCode);
 
   return [
     '★★★ #1 ABSOLUTE RULE — INSTANT LANGUAGE SWITCHING ★★★',
     'You are multilingual. ALWAYS reply in the same language as the user’s most recent meaningful words.',
     `Registered app languages: ${REGISTERED_CHAT_LANGUAGE_NAMES}. When the user’s latest meaningful words are in any one of these languages, answer only in that exact language.`,
+    lockedLanguageName
+      ? `CURRENT LIVE SESSION LANGUAGE OVERRIDE: The latest spoken user utterance was detected as ${lockedLanguageName}. Your next spoken response must be in ${lockedLanguageName} only, starting from the first word.`
+      : '',
     'If the user speaks a different identifiable language that is not in the registered list, still answer in that same language when possible.',
     'Detect the response language from the user’s words, not their accent, not your persona, and not older conversation history.',
     'If the user switches language mid-conversation or while interrupting you, your very first word in the next response MUST switch to that new language.',
