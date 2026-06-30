@@ -195,6 +195,8 @@ export function createChatController({
   let liveMicrophoneSpeechStreak = 0;
   let isTextInputActive = false;
   let lastInputTranslationKey = '';
+  let isInitialGreetingInProgress = false;
+  let shouldStartMicrophoneAfterPlayback = false;
 
   chatState.apiKeyDraft = storedApiKey;
   chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
@@ -206,6 +208,13 @@ export function createChatController({
   };
 
   liveAudioPlayer.onPlaybackDone = () => {
+    if (isInitialGreetingInProgress) {
+      isInitialGreetingInProgress = false;
+    }
+    if (shouldStartMicrophoneAfterPlayback) {
+      shouldStartMicrophoneAfterPlayback = false;
+      resumeMainLiveMicrophoneIfWanted();
+    }
     if (!hasActiveChatApiKey()) {
       return;
     }
@@ -443,13 +452,14 @@ export function createChatController({
 
     if (sendGreeting && !hasSentInitialGreeting) {
       hasSentInitialGreeting = true;
+      isInitialGreetingInProgress = true;
       currentAiText = '';
       currentAiMessageId = null;
       liveClient.sendInitialGreeting();
     }
 
     if (startMicrophone && wantsLiveMicrophone) {
-      void ensureLiveMicrophone();
+      startOrDeferLiveMicrophone();
     }
 
     return true;
@@ -503,9 +513,24 @@ export function createChatController({
     return didStart;
   }
 
+  function startOrDeferLiveMicrophone({ explicit = false } = {}) {
+    if (chatState.isRecordingMicEnabled || !wantsLiveMicrophone || !liveClient?.isConnected()) {
+      return false;
+    }
+
+    if (isInitialGreetingInProgress || liveAudioPlayer.isPlaying()) {
+      shouldStartMicrophoneAfterPlayback = true;
+      return false;
+    }
+
+    void ensureLiveMicrophone({ explicit });
+    return true;
+  }
+
   function stopLiveMicrophone({ keepPreference = false } = {}) {
     if (!keepPreference) {
       wantsLiveMicrophone = false;
+      shouldStartMicrophoneAfterPlayback = false;
     }
     liveMicrophone.stop();
     liveMicrophoneSpeechStreak = 0;
@@ -525,7 +550,7 @@ export function createChatController({
     if (chatState.isRecordingMicEnabled || !wantsLiveMicrophone || !liveClient?.isConnected()) {
       return;
     }
-    void ensureLiveMicrophone({ explicit: true });
+    startOrDeferLiveMicrophone({ explicit: true });
   }
 
   function setTextInputActive(active) {
@@ -1914,7 +1939,10 @@ export function createChatController({
     toggleChat() {
       chatState.isOpen = !chatState.isOpen;
       if (!chatState.isOpen) {
-        liveAudioPlayer.stop();
+        shouldStartMicrophoneAfterPlayback = false;
+        if (!isInitialGreetingInProgress) {
+          liveAudioPlayer.stop();
+        }
         stopLiveMicrophone({ keepPreference: true });
         chatState.layout = 'default';
         chatState.showAppearanceEditor = false;
