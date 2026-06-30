@@ -268,22 +268,11 @@ button {
 
 .mic-off-icon::before {
   content: "";
-  position: absolute;
-  width: 7px;
-  height: 14px;
-  border: 2.5px solid currentColor;
-  border-radius: 999px;
-  top: 3px;
-}
-
-.mic-off-icon::after {
-  content: "";
-  position: absolute;
-  width: 24px;
-  height: 3px;
-  border-radius: 999px;
+  width: 23px;
+  height: 23px;
   background: currentColor;
-  transform: rotate(45deg);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 11h-1.7c0 .74-.16 1.43-.43 2.05L19 15.18V11zM15 11.16V5c0-1.66-1.34-3-3-3-1.54 0-2.79 1.16-2.96 2.65L15 10.61v.55zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 11h-1.7c0 .74-.16 1.43-.43 2.05L19 15.18V11zM15 11.16V5c0-1.66-1.34-3-3-3-1.54 0-2.79 1.16-2.96 2.65L15 10.61v.55zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .toolbar-button[data-feature="drawing"] .toolbar-icon {
