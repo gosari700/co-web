@@ -1,6 +1,7 @@
 import { clearApiKey, loadApiKey, saveApiKey } from '../../settings/domain/apiKeyStore.js';
 import { CHAT_APPEARANCE_SWATCHES, CHAT_APPEARANCE_TARGETS, createDefaultChatAppearance } from '../domain/chatAppearance.js';
 import { CHAT_CONFIG, buildLiveSystemPrompt } from '../domain/chatConfig.js';
+import { CO_SECOND_API_KEYS, hasCoSecondDefaultApiKeys } from '../domain/coSecondApiKeys.js';
 import {
   buildGroundedSearchHandoff,
   buildTypedUserTurn,
@@ -113,6 +114,17 @@ function withOpacity(color, alphaHex, fallback) {
   return fallback;
 }
 
+function createActiveApiKeys(storedChatApiKey) {
+  const storedKey = storedChatApiKey.trim();
+  const chatApiKey = storedKey || CO_SECOND_API_KEYS.chatApiKey;
+  return {
+    chatApiKey,
+    groundedSearchApiKey: CO_SECOND_API_KEYS.groundedSearchApiKey || chatApiKey,
+    analysisApiKey: CO_SECOND_API_KEYS.analysisApiKey,
+    isUsingStoredChatKey: Boolean(storedKey),
+  };
+}
+
 export function createChatController({
   state,
   hostElement,
@@ -132,7 +144,8 @@ export function createChatController({
   let literalTranslator = null;
   let textRefiner = null;
   let ttsClient = null;
-  let apiKey = loadApiKey();
+  let storedApiKey = loadApiKey();
+  let activeApiKeys = createActiveApiKeys(storedApiKey);
   let hasSentInitialGreeting = false;
   let currentAiText = '';
   let currentAiMessageId = null;
@@ -140,8 +153,9 @@ export function createChatController({
   let speechRecognition = null;
   let speechRecognitionShouldRestart = false;
 
-  chatState.apiKeyDraft = apiKey;
-  chatState.isApiKeyPanelVisible = !apiKey;
+  chatState.apiKeyDraft = storedApiKey;
+  chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
+  chatState.isOpen = Boolean(activeApiKeys.chatApiKey && hasCoSecondDefaultApiKeys());
   chatState.snapshots = loadChatSnapshots();
   chatState.appearance = {
     ...createDefaultChatAppearance(),
@@ -237,8 +251,18 @@ export function createChatController({
     onStateChange?.();
   }
 
+  function refreshActiveApiKeys() {
+    activeApiKeys = createActiveApiKeys(storedApiKey);
+    return activeApiKeys;
+  }
+
+  function hasActiveChatApiKey() {
+    return Boolean(activeApiKeys.chatApiKey);
+  }
+
   function createClients() {
-    if (!apiKey) {
+    refreshActiveApiKeys();
+    if (!activeApiKeys.chatApiKey) {
       liveClient = null;
       groundedSearchClient = null;
       literalTranslator = null;
@@ -248,27 +272,27 @@ export function createChatController({
     }
 
     groundedSearchClient = new GeminiGroundedSearchClient({
-      apiKey,
+      apiKey: activeApiKeys.groundedSearchApiKey,
       model: CHAT_CONFIG.groundedSearchModel,
     });
     literalTranslator = new GeminiLiteralTranslator({
-      apiKey,
+      apiKey: activeApiKeys.chatApiKey,
       model: CHAT_CONFIG.literalTranslationModel,
       fallbackModel: CHAT_CONFIG.literalTranslationFallbackModel,
     });
     textRefiner = new GeminiTextRefiner({
-      apiKey,
+      apiKey: activeApiKeys.chatApiKey,
       model: CHAT_CONFIG.textRefinerModel,
     });
     ttsClient = new GeminiTtsClient({
-      apiKey,
+      apiKey: activeApiKeys.chatApiKey,
       model: CHAT_CONFIG.ttsModel,
       voiceName: CHAT_CONFIG.ttsVoiceName,
       promptPrefix: CHAT_CONFIG.ttsPromptPrefix,
     });
 
     liveClient = new GeminiLiveTextClient({
-      apiKey,
+      apiKey: activeApiKeys.chatApiKey,
       model: CHAT_CONFIG.liveModel,
       systemPrompt: buildLiveSystemPrompt(),
       initialGreetingPrompt: CHAT_CONFIG.liveInitialGreetingPrompt,
@@ -288,13 +312,14 @@ export function createChatController({
   }
 
   function ensureApiKey() {
-    if (apiKey) {
+    refreshActiveApiKeys();
+    if (activeApiKeys.chatApiKey) {
       return true;
     }
     chatState.isApiKeyPanelVisible = true;
     chatState.isOpen = true;
     update();
-    onMessage?.('Gemini API key를 로컬에 저장해야 채팅을 시작할 수 있습니다.');
+    onMessage?.('Gemini API key를 사용할 수 없어 채팅을 시작할 수 없습니다.');
     return false;
   }
 
@@ -362,7 +387,7 @@ export function createChatController({
     currentAiMessageId = null;
     chatState.currentAiMessageId = null;
     chatState.isSending = false;
-    chatState.connectionState = apiKey ? 'listening' : 'idle';
+    chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
     update();
   }
 
@@ -1123,7 +1148,8 @@ export function createChatController({
         if (!nextKey) {
           return;
         }
-        apiKey = nextKey;
+        storedApiKey = nextKey;
+        refreshActiveApiKeys();
         chatState.apiKeyDraft = nextKey;
         chatState.isApiKeyPanelVisible = false;
         saveApiKey(nextKey);
@@ -1139,13 +1165,20 @@ export function createChatController({
         break;
       }
       case 'clear-api-key':
-        apiKey = '';
+        storedApiKey = '';
+        refreshActiveApiKeys();
         chatState.apiKeyDraft = '';
-        chatState.isApiKeyPanelVisible = true;
+        chatState.isApiKeyPanelVisible = !hasActiveChatApiKey();
         clearApiKey();
         liveClient?.disconnect();
+        hasSentInitialGreeting = false;
         createClients();
         update();
+        if (chatState.isOpen && hasActiveChatApiKey()) {
+          void ensureLiveConnected({ sendGreeting: chatState.messages.length === 0 }).catch((error) => {
+            appendErrorMessage(toChatErrorMessage(error));
+          });
+        }
         break;
       case 'translate-message':
         void toggleMessageTranslation(messageId, false);
@@ -1321,7 +1354,7 @@ export function createChatController({
   return {
     start() {
       render();
-      if (apiKey) {
+      if (hasActiveChatApiKey()) {
         void ensureLiveConnected({ sendGreeting: true }).catch((error) => {
           chatState.errorMessage = toChatErrorMessage(error);
           update();
@@ -1345,7 +1378,7 @@ export function createChatController({
         stopSpeechRecognition();
       }
       update();
-      if (chatState.isOpen && apiKey && !hasSentInitialGreeting && chatState.messages.length === 0) {
+      if (chatState.isOpen && hasActiveChatApiKey() && !hasSentInitialGreeting && chatState.messages.length === 0) {
         void ensureLiveConnected({ sendGreeting: true }).catch((error) => {
           appendErrorMessage(toChatErrorMessage(error));
         });
