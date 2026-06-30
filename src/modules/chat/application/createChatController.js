@@ -406,6 +406,7 @@ export function createChatController({
       return;
     }
 
+    pauseMainLiveMicrophoneForPlayback();
     const didQueue = liveAudioPlayer.playChunk(audioBase64, getAudioSampleRate(mimeType));
     if (!didQueue) {
       return;
@@ -506,6 +507,14 @@ export function createChatController({
     chatState.isLiveMicStarting = true;
     update();
     const didStart = await liveMicrophone.start();
+    if (didStart && isAiOutputInProgress()) {
+      liveMicrophone.stop();
+      shouldStartMicrophoneAfterPlayback = wantsLiveMicrophone;
+      chatState.isLiveMicStarting = false;
+      chatState.isLiveMicActive = false;
+      update();
+      return false;
+    }
     chatState.isLiveMicStarting = false;
     chatState.isLiveMicActive = didStart;
     if (didStart) {
@@ -520,7 +529,7 @@ export function createChatController({
       return false;
     }
 
-    if (isInitialGreetingInProgress || liveAudioPlayer.isPlaying()) {
+    if (isAiOutputInProgress()) {
       shouldStartMicrophoneAfterPlayback = true;
       return false;
     }
@@ -544,6 +553,26 @@ export function createChatController({
     liveMicrophone.stop();
     chatState.isLiveMicActive = false;
     chatState.isLiveMicStarting = false;
+  }
+
+  function pauseMainLiveMicrophoneForPlayback() {
+    if (!liveMicrophone.isActive()) {
+      return;
+    }
+
+    liveMicrophone.stop();
+    chatState.isLiveMicActive = false;
+    chatState.isLiveMicStarting = false;
+    shouldStartMicrophoneAfterPlayback = wantsLiveMicrophone;
+  }
+
+  function isAiOutputInProgress() {
+    return Boolean(
+      isInitialGreetingInProgress
+        || currentAiMessageId
+        || currentAiText.trim()
+        || liveAudioPlayer.isPlaying(),
+    );
   }
 
   function resumeMainLiveMicrophoneIfWanted() {
@@ -600,6 +629,10 @@ export function createChatController({
       return;
     }
 
+    if (isAiOutputInProgress()) {
+      return;
+    }
+
     liveClient.sendAudio(base64, 'audio/pcm;rate=16000');
   }
 
@@ -651,6 +684,7 @@ export function createChatController({
       return;
     }
 
+    pauseMainLiveMicrophoneForPlayback();
     currentAiText += text;
     if (!currentAiMessageId) {
       const message = createAiMessage(currentAiText, 'streaming', 'live');
