@@ -15,34 +15,41 @@ export const DEFAULT_CHAT_APPEARANCE = Object.freeze({
   myBubbleBorderColor: 'transparent',
 });
 
-export const CHAT_APPEARANCE_TARGETS = Object.freeze([
-  { id: 'panelBackgroundColor', label: '패널' },
-  { id: 'aiBubbleBackgroundColor', label: 'AI 배경' },
-  { id: 'aiTextColor', label: 'AI 글자' },
-  { id: 'aiBubbleBorderColor', label: 'AI 테두리' },
-  { id: 'aiKoreanTranslationTextColor', label: '번역' },
-  { id: 'inputEnglishTextColor', label: '영어번역' },
-  { id: 'inputBackgroundColor', label: '입력 배경' },
-  { id: 'inputKoreanTextColor', label: '입력 글자' },
-  { id: 'myBubbleBackgroundColor', label: '내 배경' },
-  { id: 'myTextColor', label: '내 글자' },
-  { id: 'myBubbleBorderColor', label: '내 테두리' },
+export const CHAT_APPEARANCE_TARGET_COLUMNS = Object.freeze([
+  Object.freeze([
+    { id: 'panelBackgroundColor', label: '대화창' },
+    { id: 'aiTextColor', label: 'AI글자' },
+    { id: 'iconFrameBackgroundColor', label: '아이콘배경', underline: true },
+  ]),
+  Object.freeze([
+    { id: 'aiBubbleBackgroundColor', label: 'AI박스' },
+    { id: 'aiBubbleBorderColor', label: 'AI선' },
+    { id: 'iconFrameBorderColor', label: '아이콘선', underline: true },
+  ]),
+  Object.freeze([
+    { id: 'inputEnglishTextColor', label: '영어번역' },
+    { id: 'inputBackgroundColor', label: '배경색' },
+    { id: 'inputKoreanTextColor', label: '한국어' },
+  ]),
+  Object.freeze([
+    { id: 'myTextColor', label: 'my글자' },
+    { id: 'myBubbleBackgroundColor', label: '배경색' },
+    { id: 'myBubbleBorderColor', label: 'my선' },
+  ]),
 ]);
 
-export const CHAT_APPEARANCE_SWATCHES = Object.freeze([
-  '#9E9E9E',
-  '#3D3D3D',
-  '#4A4A4A',
-  '#FFFFFF',
-  '#9CDCFE',
-  '#FFD180',
-  '#00C853',
-  '#2196F3',
-  '#E65100',
-  '#2D2D2D',
-  'transparent',
+export const CHAT_APPEARANCE_ACTION_TARGETS = Object.freeze([
+  { id: 'aiKoreanTranslationTextColor', label: '한국번역' },
+  { id: 'iconInactiveColor', label: '콘색깔' },
 ]);
 
 export function createDefaultChatAppearance() {
   return { ...DEFAULT_CHAT_APPEARANCE };
+}
+
+export function getChatAppearanceColor(appearance, target) {
+  if (!target || !(target in appearance)) {
+    return DEFAULT_CHAT_APPEARANCE.panelBackgroundColor;
+  }
+  return appearance[target];
 }

@@ -1,5 +1,12 @@
 import { clearApiKey, loadApiKey, saveApiKey } from '../../settings/domain/apiKeyStore.js';
-import { CHAT_APPEARANCE_SWATCHES, CHAT_APPEARANCE_TARGETS, createDefaultChatAppearance } from '../domain/chatAppearance.js';
+import {
+  CHAT_APPEARANCE_ACTION_TARGETS,
+  CHAT_APPEARANCE_TARGET_COLUMNS,
+  DEFAULT_CHAT_APPEARANCE,
+  createDefaultChatAppearance,
+  getChatAppearanceColor,
+} from '../domain/chatAppearance.js';
+import { hexToHsv, hsvToHex } from '../domain/chatAppearanceColor.js';
 import { CHAT_CONFIG, buildLiveSystemPrompt } from '../domain/chatConfig.js';
 import { CO_SECOND_API_KEYS, hasCoSecondDefaultApiKeys } from '../domain/coSecondApiKeys.js';
 import {
@@ -33,6 +40,18 @@ const AUTO_TRANSLATION_DEBOUNCE_MS = 120;
 const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
+const APPEARANCE_PALETTE_WIDTH = 180;
+const APPEARANCE_PALETTE_HEIGHT = 124;
+const APPEARANCE_VALUE_BAR_HEIGHT = 124;
+const APPEARANCE_HUE_STEPS = 18;
+const APPEARANCE_SATURATION_STEPS = 12;
+const APPEARANCE_VALUE_STEPS = 12;
+const APPEARANCE_FALLBACK_COLORS = Object.freeze({
+  ...DEFAULT_CHAT_APPEARANCE,
+  iconFrameBackgroundColor: '#7C8798',
+  aiBubbleBorderColor: '#7C8798',
+  myBubbleBorderColor: '#7C8798',
+});
 
 function wait(ms) {
   return new Promise((resolve) => {
@@ -96,22 +115,19 @@ function normalizeSourceText(text, languageCode) {
   return text.trim();
 }
 
-function withOpacity(color, alphaHex, fallback) {
-  const normalized = color.trim();
-  const shortHexMatch = /^#([0-9A-Fa-f]{3})$/.exec(normalized);
-  if (shortHexMatch) {
-    const expanded = shortHexMatch[1]
-      .split('')
-      .map((char) => `${char}${char}`)
-      .join('');
-    return `#${expanded}${alphaHex}`;
-  }
+function clampUnit(value) {
+  return Math.max(0, Math.min(1, value));
+}
 
-  if (/^#([0-9A-Fa-f]{6})$/.test(normalized)) {
-    return `${normalized}${alphaHex}`;
-  }
+function clampMarker(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
-  return fallback;
+function getAppearancePickerColor(appearance, target) {
+  const currentColor = getChatAppearanceColor(appearance, target);
+  return hexToHsv(currentColor)
+    ?? hexToHsv(APPEARANCE_FALLBACK_COLORS[target] ?? DEFAULT_CHAT_APPEARANCE.panelBackgroundColor)
+    ?? { h: 0, s: 0, v: 1 };
 }
 
 function createActiveApiKeys(storedChatApiKey) {
@@ -203,14 +219,30 @@ export function createChatController({
           </div>
         </div>
         <aside class="chat-side-column" hidden>
-          <button type="button" data-action="save-snapshot" aria-label="저장">⇩</button>
-          <button type="button" data-action="open-snapshots" aria-label="폴더">▣</button>
-          <button type="button" data-action="toggle-appearance" aria-label="색상">◌</button>
-          <button type="button" data-action="toggle-transparent" aria-label="투명">◐</button>
-          <button type="button" data-action="toggle-input" aria-label="번역 입력">⌨</button>
-          <button type="button" data-action="toggle-composer" aria-label="문자 입력">➤</button>
-          <button type="button" data-action="toggle-expanded" aria-label="확대">⛶</button>
-          <button type="button" data-action="toggle-minimized" aria-label="축소">⊟</button>
+          <button type="button" data-action="save-snapshot" aria-label="저장">
+            <span class="chat-side-icon-frame">⇩</span>
+          </button>
+          <button type="button" data-action="open-snapshots" aria-label="폴더">
+            <span class="chat-side-icon-frame">▣</span>
+          </button>
+          <button type="button" data-action="toggle-appearance" aria-label="색상">
+            <span class="chat-side-icon-frame"><span class="chat-palette-glyph"></span></span>
+          </button>
+          <button type="button" data-action="toggle-transparent" aria-label="투명">
+            <span class="chat-side-icon-frame">◐</span>
+          </button>
+          <button type="button" data-action="toggle-input" aria-label="번역 입력">
+            <span class="chat-side-icon-frame">⌨</span>
+          </button>
+          <button type="button" data-action="toggle-composer" aria-label="문자 입력">
+            <span class="chat-side-icon-frame">➤</span>
+          </button>
+          <button type="button" data-action="toggle-expanded" aria-label="확대">
+            <span class="chat-side-icon-frame">⛶</span>
+          </button>
+          <button type="button" data-action="toggle-minimized" aria-label="축소">
+            <span class="chat-side-icon-frame">⊟</span>
+          </button>
         </aside>
         <div class="chat-snapshot-modal" hidden>
           <div class="chat-snapshot-sheet">
@@ -992,23 +1024,98 @@ export function createChatController({
     ].join(' · ');
   }
 
+  function buildAppearanceTargetButton(target) {
+    const targetColor = getChatAppearanceColor(chatState.appearance, target.id);
+    const swatchColor = targetColor === 'transparent' ? '#7C8798' : targetColor;
+    const className = [
+      'chat-appearance-target',
+      target.underline ? 'underlined' : '',
+      chatState.appearanceTarget === target.id ? 'active' : '',
+    ].filter(Boolean).join(' ');
+
+    return `
+      <button type="button" data-action="select-appearance-target" data-target="${target.id}" class="${className}">
+        <span class="chat-appearance-target-swatch" style="background:${swatchColor}"></span>
+        <span>${target.label}</span>
+      </button>
+    `;
+  }
+
+  function buildPaletteCells(pickerColor) {
+    const cells = [];
+    const cellWidth = APPEARANCE_PALETTE_WIDTH / APPEARANCE_HUE_STEPS;
+    const cellHeight = APPEARANCE_PALETTE_HEIGHT / APPEARANCE_SATURATION_STEPS;
+
+    for (let row = 0; row < APPEARANCE_SATURATION_STEPS; row += 1) {
+      for (let col = 0; col < APPEARANCE_HUE_STEPS; col += 1) {
+        const hue = (col / Math.max(1, APPEARANCE_HUE_STEPS - 1)) * 359;
+        const saturation = 1 - (row / Math.max(1, APPEARANCE_SATURATION_STEPS - 1));
+        cells.push(
+          `<span class="chat-palette-cell" style="left:${col * cellWidth}px;top:${row * cellHeight}px;width:${cellWidth + 0.5}px;height:${cellHeight + 0.5}px;background:${hsvToHex({ h: hue, s: saturation, v: pickerColor.v })}"></span>`,
+        );
+      }
+    }
+
+    return cells.join('');
+  }
+
+  function buildValueCells(pickerColor) {
+    const cells = [];
+    const cellHeight = APPEARANCE_VALUE_BAR_HEIGHT / APPEARANCE_VALUE_STEPS;
+
+    for (let row = 0; row < APPEARANCE_VALUE_STEPS; row += 1) {
+      const value = 1 - (row / Math.max(1, APPEARANCE_VALUE_STEPS - 1));
+      cells.push(
+        `<span class="chat-value-cell" style="top:${row * cellHeight}px;height:${cellHeight + 0.5}px;background:${hsvToHex({ h: pickerColor.h, s: pickerColor.s, v: value })}"></span>`,
+      );
+    }
+
+    return cells.join('');
+  }
+
   function renderAppearanceEditor() {
     elements.appearanceEditor.hidden = !chatState.showAppearanceEditor || !chatState.showSideColumn;
     if (elements.appearanceEditor.hidden) {
       return;
     }
 
-    const targetButtons = CHAT_APPEARANCE_TARGETS.map((target) => (
-      `<button type="button" data-action="select-appearance-target" data-target="${target.id}" class="${chatState.appearanceTarget === target.id ? 'active' : ''}">${target.label}</button>`
+    const pickerColor = getAppearancePickerColor(chatState.appearance, chatState.appearanceTarget);
+    const previewColor = hsvToHex(pickerColor);
+    const paletteMarkerLeft = clampMarker((pickerColor.h / 359) * APPEARANCE_PALETTE_WIDTH - 7, -1, APPEARANCE_PALETTE_WIDTH - 13);
+    const paletteMarkerTop = clampMarker((1 - pickerColor.s) * APPEARANCE_PALETTE_HEIGHT - 7, -1, APPEARANCE_PALETTE_HEIGHT - 13);
+    const valueMarkerTop = clampMarker((1 - pickerColor.v) * APPEARANCE_VALUE_BAR_HEIGHT - 1, 0, APPEARANCE_VALUE_BAR_HEIGHT - 3);
+    const targetColumns = CHAT_APPEARANCE_TARGET_COLUMNS.map((column, index) => (
+      `<div class="chat-appearance-target-column ${index < CHAT_APPEARANCE_TARGET_COLUMNS.length - 1 ? 'spaced' : ''}">
+        ${column.map(buildAppearanceTargetButton).join('')}
+      </div>`
     )).join('');
-    const swatches = CHAT_APPEARANCE_SWATCHES.map((color) => (
-      `<button type="button" data-action="set-appearance-color" data-color="${color}" class="chat-swatch ${color === 'transparent' ? 'chat-swatch-transparent' : ''}" style="background:${color === 'transparent' ? 'transparent' : color}"></button>`
+    const actionTargets = CHAT_APPEARANCE_ACTION_TARGETS.map((target, index) => (
+      `<button type="button" data-action="select-appearance-target" data-target="${target.id}" class="chat-appearance-action-target ${index > 0 ? 'spaced' : ''} ${chatState.appearanceTarget === target.id ? 'active' : ''}">
+        <span class="chat-appearance-target-swatch" style="background:${getChatAppearanceColor(chatState.appearance, target.id)}"></span>
+        <span>${target.label}</span>
+      </button>`
     )).join('');
 
     elements.appearanceEditor.innerHTML = `
-      <div class="chat-appearance-targets">${targetButtons}</div>
-      <div class="chat-appearance-swatches">${swatches}</div>
-      <button type="button" data-action="reset-appearance" class="chat-appearance-reset">reset</button>
+      <div class="chat-appearance-header">
+        <span class="chat-appearance-preview" style="background:${previewColor}"></span>
+        <span class="chat-appearance-preview-text">${previewColor}</span>
+      </div>
+      <div class="chat-appearance-targets">${targetColumns}</div>
+      <div class="chat-appearance-actions">
+        <button type="button" data-action="reset-appearance" class="chat-appearance-reset">기본값</button>
+        ${actionTargets}
+      </div>
+      <div class="chat-appearance-picker-row">
+        <div class="chat-color-palette" data-appearance-picker="palette">
+          ${buildPaletteCells(pickerColor)}
+          <span class="chat-palette-marker" style="left:${paletteMarkerLeft}px;top:${paletteMarkerTop}px"></span>
+        </div>
+        <div class="chat-value-bar" data-appearance-picker="value">
+          ${buildValueCells(pickerColor)}
+          <span class="chat-value-marker" style="top:${valueMarkerTop}px"></span>
+        </div>
+      </div>
     `;
   }
 
@@ -1093,6 +1200,20 @@ export function createChatController({
     elements.snapshotList.replaceChildren(fragment);
   }
 
+  function renderSideColumnStyles() {
+    const buttons = elements.sideColumn.querySelectorAll('button[data-action]');
+    buttons.forEach((button) => {
+      const frame = button.querySelector('.chat-side-icon-frame');
+      const isActive = button.classList.contains('active');
+      button.style.color = isActive ? '#FFFFFF' : chatState.appearance.iconInactiveColor;
+      if (!frame) {
+        return;
+      }
+      frame.style.borderColor = isActive ? '#FFFFFF' : chatState.appearance.iconFrameBorderColor;
+      frame.style.backgroundColor = isActive ? '#1677FF' : chatState.appearance.iconFrameBackgroundColor;
+    });
+  }
+
   function render() {
     elements.panel.hidden = !chatState.isOpen;
     elements.panel.classList.toggle('chat-panel-expanded', chatState.layout === 'expanded');
@@ -1120,6 +1241,7 @@ export function createChatController({
     layer.querySelector('[data-action="toggle-expanded"]')?.classList.toggle('active', chatState.layout === 'expanded');
     layer.querySelector('[data-action="toggle-minimized"]')?.classList.toggle('active', chatState.layout === 'minimized');
     layer.querySelector('[data-action="toggle-appearance"]')?.classList.toggle('active', chatState.showAppearanceEditor);
+    renderSideColumnStyles();
   }
 
   function toChatErrorMessage(error) {
@@ -1241,10 +1363,8 @@ export function createChatController({
         break;
       case 'select-appearance-target':
         chatState.appearanceTarget = button.dataset.target;
+        chatState.showAppearanceEditor = true;
         update();
-        break;
-      case 'set-appearance-color':
-        setAppearanceColor(chatState.appearanceTarget, button.dataset.color);
         break;
       case 'reset-appearance':
         resetAppearance();
@@ -1322,6 +1442,67 @@ export function createChatController({
     }
   }
 
+  function updateAppearanceFromPicker(pointerEvent, pickerType) {
+    const target = chatState.appearanceTarget;
+    if (!target || !(target in chatState.appearance)) {
+      return;
+    }
+
+    const picker = getAppearancePickerColor(chatState.appearance, target);
+    if (pickerType === 'palette') {
+      const palette = elements.appearanceEditor.querySelector('[data-appearance-picker="palette"]');
+      if (!palette) {
+        return;
+      }
+      const rect = palette.getBoundingClientRect();
+      const x = pointerEvent.clientX - rect.left;
+      const y = pointerEvent.clientY - rect.top;
+      setAppearanceColor(target, hsvToHex({
+        ...picker,
+        h: clampUnit(x / APPEARANCE_PALETTE_WIDTH) * 359,
+        s: 1 - clampUnit(y / APPEARANCE_PALETTE_HEIGHT),
+      }));
+      return;
+    }
+
+    if (pickerType === 'value') {
+      const valueBar = elements.appearanceEditor.querySelector('[data-appearance-picker="value"]');
+      if (!valueBar) {
+        return;
+      }
+      const rect = valueBar.getBoundingClientRect();
+      const y = pointerEvent.clientY - rect.top;
+      setAppearanceColor(target, hsvToHex({
+        ...picker,
+        v: 1 - clampUnit(y / APPEARANCE_VALUE_BAR_HEIGHT),
+      }));
+    }
+  }
+
+  function handlePointerDown(event) {
+    const picker = event.target.closest('[data-appearance-picker]');
+    if (!picker || !layer.contains(picker)) {
+      return;
+    }
+
+    event.preventDefault();
+    const pickerType = picker.dataset.appearancePicker;
+    updateAppearanceFromPicker(event, pickerType);
+
+    const handlePointerMove = (moveEvent) => {
+      updateAppearanceFromPicker(moveEvent, pickerType);
+    };
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+  }
+
   elements.composer.addEventListener('submit', (event) => {
     event.preventDefault();
     const draft = elements.composerInput.value.trim();
@@ -1348,6 +1529,7 @@ export function createChatController({
   });
 
   layer.addEventListener('click', handleClick);
+  layer.addEventListener('pointerdown', handlePointerDown);
 
   createClients();
 
