@@ -11,7 +11,6 @@ import { CHAT_CONFIG, buildLiveSystemPrompt } from '../domain/chatConfig.js';
 import { CO_SECOND_API_KEYS } from '../domain/coSecondApiKeys.js';
 import {
   buildGroundedSearchHandoff,
-  buildLiveLanguageContext,
   buildTypedUserTurn,
   containsKorean,
   createAiMessage,
@@ -197,6 +196,7 @@ export function createChatController({
   let lastInputTranslationKey = '';
   let isInitialGreetingInProgress = false;
   let shouldStartMicrophoneAfterPlayback = false;
+  let isHoldingLiveMicrophoneInputForAi = false;
 
   chatState.apiKeyDraft = storedApiKey;
   chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
@@ -211,6 +211,7 @@ export function createChatController({
     if (isInitialGreetingInProgress) {
       isInitialGreetingInProgress = false;
     }
+    isHoldingLiveMicrophoneInputForAi = false;
     if (shouldStartMicrophoneAfterPlayback) {
       shouldStartMicrophoneAfterPlayback = false;
       resumeMainLiveMicrophoneIfWanted();
@@ -406,7 +407,7 @@ export function createChatController({
       return;
     }
 
-    pauseMainLiveMicrophoneForPlayback();
+    holdLiveMicrophoneInputForAiOutput();
     const didQueue = liveAudioPlayer.playChunk(audioBase64, getAudioSampleRate(mimeType));
     if (!didQueue) {
       return;
@@ -508,12 +509,8 @@ export function createChatController({
     update();
     const didStart = await liveMicrophone.start();
     if (didStart && isAiOutputInProgress()) {
-      liveMicrophone.stop();
+      holdLiveMicrophoneInputForAiOutput();
       shouldStartMicrophoneAfterPlayback = wantsLiveMicrophone;
-      chatState.isLiveMicStarting = false;
-      chatState.isLiveMicActive = false;
-      update();
-      return false;
     }
     chatState.isLiveMicStarting = false;
     chatState.isLiveMicActive = didStart;
@@ -543,6 +540,7 @@ export function createChatController({
       wantsLiveMicrophone = false;
       shouldStartMicrophoneAfterPlayback = false;
     }
+    isHoldingLiveMicrophoneInputForAi = false;
     liveMicrophone.stop();
     chatState.isLiveMicActive = false;
     chatState.isLiveMicStarting = false;
@@ -550,19 +548,14 @@ export function createChatController({
   }
 
   function pauseMainLiveMicrophoneForInput() {
+    isHoldingLiveMicrophoneInputForAi = false;
     liveMicrophone.stop();
     chatState.isLiveMicActive = false;
     chatState.isLiveMicStarting = false;
   }
 
-  function pauseMainLiveMicrophoneForPlayback() {
-    if (!liveMicrophone.isActive()) {
-      return;
-    }
-
-    liveMicrophone.stop();
-    chatState.isLiveMicActive = false;
-    chatState.isLiveMicStarting = false;
+  function holdLiveMicrophoneInputForAiOutput() {
+    isHoldingLiveMicrophoneInputForAi = true;
     shouldStartMicrophoneAfterPlayback = wantsLiveMicrophone;
   }
 
@@ -617,19 +610,12 @@ export function createChatController({
     }
   }
 
-  function sendLiveLanguageContext(text, languageCode) {
-    const context = buildLiveLanguageContext(text, languageCode);
-    if (context) {
-      liveClient?.sendSilentContextWithoutTurn(context);
-    }
-  }
-
   function handleLiveMicrophoneChunk(base64) {
     if (!base64 || !liveClient?.isConnected()) {
       return;
     }
 
-    if (isAiOutputInProgress()) {
+    if (isHoldingLiveMicrophoneInputForAi || isAiOutputInProgress()) {
       return;
     }
 
@@ -641,7 +627,6 @@ export function createChatController({
       return;
     }
     const trimmedTranscript = text.trim();
-    const detectedLanguageCode = resolveChatLanguageCode(trimmedTranscript);
 
     if (isTextInputActive && chatState.input.isVisible && chatState.input.isInputMicActive) {
       chatState.input.value = `${chatState.input.value}${text}`;
@@ -670,9 +655,8 @@ export function createChatController({
     update();
     scrollToEnd();
 
-    if (detectedLanguageCode) {
-      sendLiveLanguageContext(trimmedTranscript, detectedLanguageCode);
-    }
+    // Do not send extra clientContent here. Runtime context updates can interrupt
+    // an answer that the Live model has already started speaking.
   }
 
   function handleAiTextDelta(text) {
@@ -684,7 +668,7 @@ export function createChatController({
       return;
     }
 
-    pauseMainLiveMicrophoneForPlayback();
+    holdLiveMicrophoneInputForAiOutput();
     currentAiText += text;
     if (!currentAiMessageId) {
       const message = createAiMessage(currentAiText, 'streaming', 'live');
@@ -707,6 +691,7 @@ export function createChatController({
   function handleAiInterrupted() {
     liveAudioPlayer.stop();
     didQueueLiveAudioInTurn = false;
+    isHoldingLiveMicrophoneInputForAi = false;
     if (isTextInputActive) {
       currentAiText = '';
       currentAiMessageId = null;
@@ -765,6 +750,7 @@ export function createChatController({
       if (isInitialGreetingInProgress) {
         isInitialGreetingInProgress = false;
       }
+      isHoldingLiveMicrophoneInputForAi = false;
       if (shouldStartMicrophoneAfterPlayback) {
         shouldStartMicrophoneAfterPlayback = false;
         resumeMainLiveMicrophoneIfWanted();
@@ -841,6 +827,7 @@ export function createChatController({
       ?? '';
 
     chatState.isOpen = true;
+    isHoldingLiveMicrophoneInputForAi = false;
     liveAudioPlayer.stop();
     chatState.messages.push(createUserMessage(trimmed));
     chatState.isSending = true;
