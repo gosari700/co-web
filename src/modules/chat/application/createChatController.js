@@ -52,8 +52,6 @@ const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
 const INPUT_TRANSCRIPT_MERGE_MS = 10000;
-const LIVE_MIC_SPEECH_RMS_THRESHOLD = 0.018;
-const LIVE_MIC_SPEECH_PEAK_THRESHOLD = 0.07;
 const APPEARANCE_PALETTE_WIDTH = 180;
 const APPEARANCE_PALETTE_HEIGHT = 124;
 const APPEARANCE_VALUE_BAR_HEIGHT = 124;
@@ -194,15 +192,11 @@ export function createChatController({
   let speechRecognitionShouldRestart = false;
   let wantsLiveMicrophone = true;
   let hasTriedAutomaticLiveMicrophone = false;
-  let liveMicrophoneSpeechStreak = 0;
+  let didQueueLiveAudioInTurn = false;
   let isTextInputActive = false;
   let lastInputTranslationKey = '';
   let isInitialGreetingInProgress = false;
   let shouldStartMicrophoneAfterPlayback = false;
-  let livePromptLanguageCode = null;
-  let lastLiveUserLanguageCode = null;
-  let liveLanguageCorrectionRequestId = 0;
-  let isSuppressingLiveOutputForLanguageSwitch = false;
 
   chatState.apiKeyDraft = storedApiKey;
   chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
@@ -379,9 +373,7 @@ export function createChatController({
     liveClient = new GeminiLiveTextClient({
       apiKey: activeApiKeys.chatApiKey,
       model: CHAT_CONFIG.liveModel,
-      systemPrompt: buildLiveSystemPrompt(new Date(), {
-        responseLanguageCode: livePromptLanguageCode,
-      }),
+      systemPrompt: buildLiveSystemPrompt(),
       initialGreetingPrompt: CHAT_CONFIG.liveInitialGreetingPrompt,
       liveVoiceName: CHAT_CONFIG.liveVoiceName,
     });
@@ -409,7 +401,7 @@ export function createChatController({
       return;
     }
 
-    if (isTextInputActive || isSuppressingLiveOutputForLanguageSwitch) {
+    if (isTextInputActive) {
       liveAudioPlayer.stop();
       return;
     }
@@ -419,6 +411,7 @@ export function createChatController({
       return;
     }
 
+    didQueueLiveAudioInTurn = true;
     chatState.connectionState = 'speaking';
     update();
   }
@@ -461,6 +454,7 @@ export function createChatController({
     if (sendGreeting && !hasSentInitialGreeting) {
       hasSentInitialGreeting = true;
       isInitialGreetingInProgress = true;
+      didQueueLiveAudioInTurn = false;
       currentAiText = '';
       currentAiMessageId = null;
       liveClient.sendInitialGreeting();
@@ -541,7 +535,6 @@ export function createChatController({
       shouldStartMicrophoneAfterPlayback = false;
     }
     liveMicrophone.stop();
-    liveMicrophoneSpeechStreak = 0;
     chatState.isLiveMicActive = false;
     chatState.isLiveMicStarting = false;
     update();
@@ -549,7 +542,6 @@ export function createChatController({
 
   function pauseMainLiveMicrophoneForInput() {
     liveMicrophone.stop();
-    liveMicrophoneSpeechStreak = 0;
     chatState.isLiveMicActive = false;
     chatState.isLiveMicStarting = false;
   }
@@ -568,7 +560,6 @@ export function createChatController({
     }
 
     liveAudioPlayer.stop();
-    liveMicrophoneSpeechStreak = 0;
     if (currentAiMessageId) {
       const message = getMessageById(chatState, currentAiMessageId);
       if (message) {
@@ -604,72 +595,9 @@ export function createChatController({
     }
   }
 
-  async function restartLiveTurnForLanguageSwitch(text, languageCode) {
-    const trimmed = text.trim();
-    if (!trimmed || !languageCode) {
-      return;
-    }
-
-    const requestId = liveLanguageCorrectionRequestId + 1;
-    liveLanguageCorrectionRequestId = requestId;
-    isSuppressingLiveOutputForLanguageSwitch = true;
-    livePromptLanguageCode = languageCode;
-    liveAudioPlayer.stop();
-    pauseMainLiveMicrophoneForInput();
-    currentAiText = '';
-    currentAiMessageId = null;
-    chatState.currentAiMessageId = null;
-    chatState.isSending = true;
-    chatState.connectionState = 'connecting';
-    update();
-
-    liveClient?.disconnect();
-    createClients();
-
-    try {
-      const connected = await ensureLiveConnected({
-        sendGreeting: false,
-        startMicrophone: false,
-      });
-      if (!connected || requestId !== liveLanguageCorrectionRequestId || !liveClient) {
-        return;
-      }
-
-      isSuppressingLiveOutputForLanguageSwitch = false;
-      chatState.connectionState = 'processing';
-      update();
-      liveClient.sendTextTurn(buildTypedUserTurn(trimmed, languageCode));
-      shouldStartMicrophoneAfterPlayback = true;
-    } catch (error) {
-      isSuppressingLiveOutputForLanguageSwitch = false;
-      appendErrorMessage(toChatErrorMessage(error));
-    } finally {
-      if (requestId === liveLanguageCorrectionRequestId) {
-        isSuppressingLiveOutputForLanguageSwitch = false;
-      }
-    }
-  }
-
-  function handleLiveMicrophoneChunk(base64, metrics = {}) {
+  function handleLiveMicrophoneChunk(base64) {
     if (!base64 || !liveClient?.isConnected()) {
       return;
-    }
-
-    const rms = metrics.rms ?? 0;
-    const peak = metrics.peak ?? 0;
-    const looksLikeSpeech = rms >= LIVE_MIC_SPEECH_RMS_THRESHOLD
-      || peak >= LIVE_MIC_SPEECH_PEAK_THRESHOLD;
-
-    if (looksLikeSpeech) {
-      liveMicrophoneSpeechStreak += 1;
-    } else {
-      liveMicrophoneSpeechStreak = 0;
-    }
-
-    if (liveAudioPlayer.isPlaying() && liveMicrophoneSpeechStreak >= 2) {
-      liveAudioPlayer.stop();
-      chatState.connectionState = 'listening';
-      update();
     }
 
     liveClient.sendAudio(base64, 'audio/pcm;rate=16000');
@@ -710,17 +638,7 @@ export function createChatController({
     scrollToEnd();
 
     if (detectedLanguageCode) {
-      const didSwitchLanguage = Boolean(lastLiveUserLanguageCode)
-        && detectedLanguageCode !== lastLiveUserLanguageCode;
-      lastLiveUserLanguageCode = detectedLanguageCode;
       sendLiveLanguageContext(trimmedTranscript, detectedLanguageCode);
-
-      if (didSwitchLanguage) {
-        void restartLiveTurnForLanguageSwitch(
-          trimmedTranscript,
-          detectedLanguageCode,
-        );
-      }
     }
   }
 
@@ -729,7 +647,7 @@ export function createChatController({
       return;
     }
 
-    if (isTextInputActive || isSuppressingLiveOutputForLanguageSwitch) {
+    if (isTextInputActive) {
       return;
     }
 
@@ -754,6 +672,7 @@ export function createChatController({
 
   function handleAiInterrupted() {
     liveAudioPlayer.stop();
+    didQueueLiveAudioInTurn = false;
     if (isTextInputActive) {
       currentAiText = '';
       currentAiMessageId = null;
@@ -765,6 +684,62 @@ export function createChatController({
       return;
     }
     handleAiTurnComplete();
+  }
+
+  async function speakInitialGreetingFallback(text) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    pauseMainLiveMicrophoneForInput();
+    try {
+      let didPlayGeminiTts = false;
+      if (ttsClient) {
+        try {
+          const audioSource = await Promise.race([
+            ttsClient.generateAudio(trimmed),
+            new Promise((resolve) => {
+              setTimeout(() => resolve(''), GEMINI_TTS_START_WAIT_MS);
+            }),
+          ]);
+          if (audioSource) {
+            await audioPlayer.play(audioSource);
+            didPlayGeminiTts = true;
+          }
+        } catch {
+          didPlayGeminiTts = false;
+        }
+      }
+
+      if (!didPlayGeminiTts) {
+        await repeatSpeech(
+          speechSynthesizer,
+          trimmed,
+          1,
+          0,
+          {
+            language: 'en-US',
+            pitch: 1.08,
+            rate: 0.92,
+          },
+        );
+      }
+    } catch {
+      // Startup greeting audio is best-effort when the Live API sends text only.
+    } finally {
+      if (isInitialGreetingInProgress) {
+        isInitialGreetingInProgress = false;
+      }
+      if (shouldStartMicrophoneAfterPlayback) {
+        shouldStartMicrophoneAfterPlayback = false;
+        resumeMainLiveMicrophoneIfWanted();
+      }
+      if (hasActiveChatApiKey()) {
+        chatState.connectionState = 'listening';
+      }
+      update();
+    }
   }
 
   function handleAiTurnComplete() {
@@ -784,13 +759,22 @@ export function createChatController({
         message.status = 'ready';
       }
     }
+    const completedAiText = currentAiText.trim();
+    const shouldUseInitialGreetingFallback = isInitialGreetingInProgress
+      && completedAiText
+      && !didQueueLiveAudioInTurn;
     currentAiText = '';
     currentAiMessageId = null;
     chatState.currentAiMessageId = null;
     chatState.isSending = false;
-    liveAudioPlayer.markTurnEnd();
+    if (shouldUseInitialGreetingFallback) {
+      void speakInitialGreetingFallback(completedAiText);
+    } else {
+      liveAudioPlayer.markTurnEnd();
+    }
+    didQueueLiveAudioInTurn = false;
     chatState.connectionState = hasActiveChatApiKey()
-      ? liveAudioPlayer.isPlaying() ? 'speaking' : 'listening'
+      ? (shouldUseInitialGreetingFallback || liveAudioPlayer.isPlaying() ? 'speaking' : 'listening')
       : 'idle';
     update();
   }
@@ -821,10 +805,6 @@ export function createChatController({
     const responseLanguageCode = options.languageCode
       ?? resolveChatLanguageCode(trimmed)
       ?? '';
-    if (responseLanguageCode) {
-      lastLiveUserLanguageCode = responseLanguageCode;
-      livePromptLanguageCode = responseLanguageCode;
-    }
 
     chatState.isOpen = true;
     liveAudioPlayer.stop();
@@ -851,6 +831,7 @@ export function createChatController({
       }
       currentAiText = '';
       currentAiMessageId = null;
+      didQueueLiveAudioInTurn = false;
       liveClient.sendTextTurn(buildTypedUserTurn(trimmed, responseLanguageCode));
       return true;
     } catch (error) {
