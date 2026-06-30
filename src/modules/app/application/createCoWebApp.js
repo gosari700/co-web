@@ -1,6 +1,7 @@
 import { createAppState } from '../domain/createAppState.js';
 import { createCameraController } from '../../camera/application/createCameraController.js';
 import { CAMERA_STATUS } from '../../camera/domain/cameraState.js';
+import { createChatController } from '../../chat/application/createChatController.js';
 import { createPwaController } from '../../pwa/application/createPwaController.js';
 import { createToolbarController } from '../../toolbar/application/createToolbarController.js';
 
@@ -49,7 +50,13 @@ export function createCoWebApp({ root }) {
     }
 
     elements.toolbarButtons.forEach((button) => {
-      button.classList.toggle('active', button.dataset.feature === state.activeFeature);
+      const feature = button.dataset.feature;
+      const isChatActive = feature === 'chat' && state.chat?.isOpen;
+      const isChatColumnActive = feature === 'columns' && state.chat?.showSideColumn;
+      button.classList.toggle(
+        'active',
+        isChatActive || isChatColumnActive || feature === state.activeFeature,
+      );
     });
   };
 
@@ -66,6 +73,13 @@ export function createCoWebApp({ root }) {
     onMessage: showToast,
   });
 
+  const chat = createChatController({
+    state,
+    hostElement: elements.root,
+    onStateChange: render,
+    onMessage: showToast,
+  });
+
   const toolbar = createToolbarController({
     state,
     buttons: elements.toolbarButtons,
@@ -73,12 +87,14 @@ export function createCoWebApp({ root }) {
     onUnsupportedFeature: (feature) => {
       showToast(`${feature.label} 기능은 다음 단계에서 추가합니다.`);
     },
+    onFeaturePress: (featureId) => chat.handleToolbarFeature(featureId),
   });
 
   return {
     start() {
       render();
       pwa.start();
+      chat.start();
       toolbar.start();
       elements.startCameraButton.addEventListener('click', () => {
         void camera.start();
@@ -87,6 +103,7 @@ export function createCoWebApp({ root }) {
     },
     stop() {
       camera.stop();
+      chat.stop();
     },
   };
 }

@@ -1,0 +1,47 @@
+import { createDefaultChatAppearance } from './chatAppearance.js';
+
+export function createChatState() {
+  return {
+    isOpen: false,
+    layout: 'default',
+    showSideColumn: false,
+    isTransparent: false,
+    showAppearanceEditor: false,
+    appearanceTarget: 'panelBackgroundColor',
+    appearance: createDefaultChatAppearance(),
+    messages: [],
+    currentAiMessageId: null,
+    connectionState: 'idle',
+    errorMessage: '',
+    isSending: false,
+    composer: {
+      isVisible: false,
+      draft: '',
+    },
+    input: {
+      isVisible: false,
+      value: '',
+      translatedText: '',
+      sourceLanguageCode: 'ko',
+      targetLanguageCode: 'en',
+      isLanguagePanelVisible: false,
+      languageSelectionTarget: 'target',
+      isTranslating: false,
+      isRefining: false,
+      isInputMicActive: false,
+      isSpeaking: false,
+    },
+    translations: {},
+    visibleTranslations: {},
+    translating: {},
+    literalTranslations: {},
+    visibleLiteralTranslations: {},
+    literalTranslating: {},
+    speakingMessageId: null,
+    apiKeyDraft: '',
+    isApiKeyPanelVisible: false,
+    snapshots: [],
+    isSnapshotLibraryVisible: false,
+    activeSnapshot: null,
+  };
+}

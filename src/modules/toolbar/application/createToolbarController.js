@@ -5,6 +5,7 @@ export function createToolbarController({
   buttons,
   onStateChange,
   onUnsupportedFeature,
+  onFeaturePress,
 }) {
   function handleFeaturePress(featureId) {
     const feature = getToolbarFeature(featureId);
@@ -16,6 +17,10 @@ export function createToolbarController({
       state.activeFeature = 'camera';
       onStateChange();
       onUnsupportedFeature(feature);
+      return;
+    }
+
+    if (onFeaturePress?.(feature.id)) {
       return;
     }
 
