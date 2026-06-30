@@ -27,7 +27,13 @@ import {
   getTranslationLanguageLabel,
   getTranslationLanguageSpeechLocale,
 } from '../domain/translationLanguages.js';
-import { BrowserAudioPlayer, BrowserSpeechSynthesizer, createSpeechRecognition, repeatSpeech } from '../infrastructure/browserAudio.js';
+import {
+  BrowserAudioPlayer,
+  BrowserLiveAudioPlayer,
+  BrowserSpeechSynthesizer,
+  createSpeechRecognition,
+  repeatSpeech,
+} from '../infrastructure/browserAudio.js';
 import { loadChatAppearance, loadChatSnapshots, saveChatAppearance, saveChatSnapshots } from '../infrastructure/chatLocalStorage.js';
 import { GeminiGroundedSearchClient } from '../infrastructure/geminiGroundedSearchClient.js';
 import { GeminiLiteralTranslator } from '../infrastructure/geminiLiteralTranslator.js';
@@ -37,6 +43,7 @@ import { GeminiTtsClient } from '../infrastructure/geminiTtsClient.js';
 import { GoogleTranslator } from '../infrastructure/googleTranslator.js';
 
 const AUTO_TRANSLATION_DEBOUNCE_MS = 120;
+const GEMINI_TTS_START_WAIT_MS = 350;
 const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
@@ -130,6 +137,11 @@ function getAppearancePickerColor(appearance, target) {
     ?? { h: 0, s: 0, v: 1 };
 }
 
+function getAudioSampleRate(mimeType) {
+  const rateMatch = `${mimeType}`.match(/rate=(\d+)/);
+  return rateMatch ? Number.parseInt(rateMatch[1], 10) : 24000;
+}
+
 function createActiveApiKeys(storedChatApiKey) {
   const storedKey = storedChatApiKey.trim();
   const chatApiKey = storedKey || CO_SECOND_API_KEYS.chatApiKey;
@@ -153,6 +165,7 @@ export function createChatController({
 
   const chatState = state.chat;
   const audioPlayer = new BrowserAudioPlayer();
+  const liveAudioPlayer = new BrowserLiveAudioPlayer();
   const speechSynthesizer = new BrowserSpeechSynthesizer();
   const googleTranslator = new GoogleTranslator();
   let liveClient = null;
@@ -176,6 +189,14 @@ export function createChatController({
   chatState.appearance = {
     ...createDefaultChatAppearance(),
     ...(loadChatAppearance() ?? {}),
+  };
+
+  liveAudioPlayer.onPlaybackDone = () => {
+    if (!hasActiveChatApiKey()) {
+      return;
+    }
+    chatState.connectionState = 'listening';
+    update();
   };
 
   const layer = document.createElement('section');
@@ -331,16 +352,34 @@ export function createChatController({
       liveVoiceName: CHAT_CONFIG.liveVoiceName,
     });
     liveClient.onConnectionChange = (connected) => {
+      if (!connected) {
+        liveAudioPlayer.stop();
+      }
       chatState.connectionState = connected ? 'listening' : 'idle';
       update();
     };
     liveClient.onTextDelta = handleAiTextDelta;
     liveClient.onTurnComplete = handleAiTurnComplete;
-    liveClient.onInterrupted = handleAiTurnComplete;
+    liveClient.onAudioChunk = handleAiAudioChunk;
+    liveClient.onInterrupted = handleAiInterrupted;
     liveClient.onError = (message) => {
       chatState.errorMessage = message;
       update();
     };
+  }
+
+  function handleAiAudioChunk(audioBase64, mimeType) {
+    if (!audioBase64) {
+      return;
+    }
+
+    const didQueue = liveAudioPlayer.playChunk(audioBase64, getAudioSampleRate(mimeType));
+    if (!didQueue) {
+      return;
+    }
+
+    chatState.connectionState = 'speaking';
+    update();
   }
 
   function ensureApiKey() {
@@ -408,6 +447,11 @@ export function createChatController({
     scrollToEnd();
   }
 
+  function handleAiInterrupted() {
+    liveAudioPlayer.stop();
+    handleAiTurnComplete();
+  }
+
   function handleAiTurnComplete() {
     if (currentAiMessageId) {
       const message = getMessageById(chatState, currentAiMessageId);
@@ -419,7 +463,10 @@ export function createChatController({
     currentAiMessageId = null;
     chatState.currentAiMessageId = null;
     chatState.isSending = false;
-    chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
+    liveAudioPlayer.markTurnEnd();
+    chatState.connectionState = hasActiveChatApiKey()
+      ? liveAudioPlayer.isPlaying() ? 'speaking' : 'listening'
+      : 'idle';
     update();
   }
 
@@ -448,6 +495,7 @@ export function createChatController({
     }
 
     chatState.isOpen = true;
+    liveAudioPlayer.stop();
     chatState.messages.push(createUserMessage(trimmed));
     chatState.isSending = true;
     chatState.errorMessage = '';
@@ -568,6 +616,7 @@ export function createChatController({
       return;
     }
 
+    liveAudioPlayer.stop();
     chatState.speakingMessageId = message.id;
     update();
 
@@ -578,7 +627,7 @@ export function createChatController({
           const audioSource = await Promise.race([
             ttsClient.generateAudio(trimmed),
             new Promise((resolve) => {
-              setTimeout(() => resolve(''), 500);
+              setTimeout(() => resolve(''), GEMINI_TTS_START_WAIT_MS);
             }),
           ]);
           if (audioSource) {
@@ -1278,6 +1327,7 @@ export function createChatController({
         if (liveClient) {
           liveClient.disconnect();
         }
+        liveAudioPlayer.stop();
         hasSentInitialGreeting = false;
         createClients();
         update();
@@ -1293,6 +1343,7 @@ export function createChatController({
         chatState.isApiKeyPanelVisible = !hasActiveChatApiKey();
         clearApiKey();
         liveClient?.disconnect();
+        liveAudioPlayer.stop();
         hasSentInitialGreeting = false;
         createClients();
         update();
@@ -1479,7 +1530,12 @@ export function createChatController({
     }
   }
 
+  function handleGlobalAudioUnlock() {
+    liveAudioPlayer.unlock();
+  }
+
   function handlePointerDown(event) {
+    handleGlobalAudioUnlock();
     const picker = event.target.closest('[data-appearance-picker]');
     if (!picker || !layer.contains(picker)) {
       return;
@@ -1530,6 +1586,8 @@ export function createChatController({
 
   layer.addEventListener('click', handleClick);
   layer.addEventListener('pointerdown', handlePointerDown);
+  window.addEventListener('pointerdown', handleGlobalAudioUnlock, { passive: true });
+  window.addEventListener('keydown', handleGlobalAudioUnlock);
 
   createClients();
 
@@ -1546,12 +1604,16 @@ export function createChatController({
     stop() {
       liveClient?.disconnect();
       stopSpeechRecognition();
+      liveAudioPlayer.stop();
       audioPlayer.stop();
       speechSynthesizer.stop();
+      window.removeEventListener('pointerdown', handleGlobalAudioUnlock);
+      window.removeEventListener('keydown', handleGlobalAudioUnlock);
     },
     toggleChat() {
       chatState.isOpen = !chatState.isOpen;
       if (!chatState.isOpen) {
+        liveAudioPlayer.stop();
         chatState.layout = 'default';
         chatState.showAppearanceEditor = false;
         chatState.composer.isVisible = false;

@@ -22,6 +22,7 @@ export class GeminiLiveTextClient {
     this.setupComplete = false;
     this.connectPromise = null;
     this.onConnectionChange = null;
+    this.onAudioChunk = null;
     this.onTextDelta = null;
     this.onTurnComplete = null;
     this.onInterrupted = null;
@@ -259,6 +260,16 @@ export class GeminiLiveTextClient {
     if (serverContent.interrupted) {
       this.onInterrupted?.();
       return;
+    }
+
+    const parts = serverContent.modelTurn?.parts ?? [];
+    for (const part of parts) {
+      if (part?.inlineData?.data) {
+        this.onAudioChunk?.(
+          part.inlineData.data,
+          part.inlineData.mimeType ?? 'audio/pcm;rate=24000',
+        );
+      }
     }
 
     if (serverContent.turnComplete) {
