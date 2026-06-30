@@ -1,6 +1,5 @@
 :root {
   --toolbar-height: 40px;
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --black: #000000;
   --white: #ffffff;
   --toolbar-bg: rgba(0, 0, 0, 0.9);
@@ -120,7 +119,7 @@ button {
 .toast {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--toolbar-height) + var(--safe-bottom) + 18px);
+  bottom: calc(var(--toolbar-height) + 18px);
   z-index: 40;
   transform: translateX(-50%);
   max-width: calc(100% - 28px);
@@ -139,11 +138,11 @@ button {
   right: 0;
   bottom: 0;
   z-index: 30;
-  height: calc(var(--toolbar-height) + var(--safe-bottom));
+  height: var(--toolbar-height);
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   align-items: center;
-  padding: 0 6px var(--safe-bottom);
+  padding: 0 6px;
   background: var(--toolbar-bg);
 }
 
