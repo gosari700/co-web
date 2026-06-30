@@ -8,7 +8,7 @@ import {
 } from '../domain/chatAppearance.js';
 import { hexToHsv, hsvToHex } from '../domain/chatAppearanceColor.js';
 import { CHAT_CONFIG, buildLiveSystemPrompt } from '../domain/chatConfig.js';
-import { CO_SECOND_API_KEYS, hasCoSecondDefaultApiKeys } from '../domain/coSecondApiKeys.js';
+import { CO_SECOND_API_KEYS } from '../domain/coSecondApiKeys.js';
 import {
   buildGroundedSearchHandoff,
   buildTypedUserTurn,
@@ -30,6 +30,7 @@ import {
 import {
   BrowserAudioPlayer,
   BrowserLiveAudioPlayer,
+  BrowserLiveMicrophone,
   BrowserSpeechSynthesizer,
   createSpeechRecognition,
   repeatSpeech,
@@ -42,11 +43,15 @@ import { GeminiTextRefiner } from '../infrastructure/geminiTextRefiner.js';
 import { GeminiTtsClient } from '../infrastructure/geminiTtsClient.js';
 import { GoogleTranslator } from '../infrastructure/googleTranslator.js';
 
-const AUTO_TRANSLATION_DEBOUNCE_MS = 120;
+const AUTO_TRANSLATION_DEBOUNCE_MS = 80;
+const AUTO_TRANSLATION_TTS_WAIT_MS = 500;
 const GEMINI_TTS_START_WAIT_MS = 350;
 const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
+const INPUT_TRANSCRIPT_MERGE_MS = 10000;
+const LIVE_MIC_SPEECH_RMS_THRESHOLD = 0.018;
+const LIVE_MIC_SPEECH_PEAK_THRESHOLD = 0.07;
 const APPEARANCE_PALETTE_WIDTH = 180;
 const APPEARANCE_PALETTE_HEIGHT = 124;
 const APPEARANCE_VALUE_BAR_HEIGHT = 124;
@@ -166,6 +171,10 @@ export function createChatController({
   const chatState = state.chat;
   const audioPlayer = new BrowserAudioPlayer();
   const liveAudioPlayer = new BrowserLiveAudioPlayer();
+  const liveMicrophone = new BrowserLiveMicrophone({
+    onChunk: handleLiveMicrophoneChunk,
+    onError: handleLiveMicrophoneError,
+  });
   const speechSynthesizer = new BrowserSpeechSynthesizer();
   const googleTranslator = new GoogleTranslator();
   let liveClient = null;
@@ -181,10 +190,15 @@ export function createChatController({
   let autoTranslationTimer = null;
   let speechRecognition = null;
   let speechRecognitionShouldRestart = false;
+  let wantsLiveMicrophone = true;
+  let hasTriedAutomaticLiveMicrophone = false;
+  let liveMicrophoneSpeechStreak = 0;
+  let isTextInputActive = false;
+  let lastInputTranslationKey = '';
 
   chatState.apiKeyDraft = storedApiKey;
   chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
-  chatState.isOpen = Boolean(activeApiKeys.chatApiKey && hasCoSecondDefaultApiKeys());
+  chatState.isOpen = false;
   chatState.snapshots = loadChatSnapshots();
   chatState.appearance = {
     ...createDefaultChatAppearance(),
@@ -232,9 +246,11 @@ export function createChatController({
               <button type="button" data-action="input-mic" aria-label="마이크">🎤</button>
               <button type="button" data-action="input-refine" aria-label="다듬기">✨</button>
               <button type="button" data-action="input-translate" aria-label="번역">Aa</button>
-              <button type="button" data-action="toggle-language-panel" aria-label="언어">⇄</button>
+              <button type="button" data-action="toggle-language-panel" aria-label="언어">
+                <span class="chat-input-translate-icon"></span>
+              </button>
               <button type="button" data-action="input-speak" aria-label="읽기">🔊</button>
-              <button type="button" data-action="input-clear" aria-label="삭제">⌫</button>
+              <button type="button" data-action="input-clear" aria-label="삭제">🗑️</button>
               <button type="button" data-action="input-submit" aria-label="전송">▶</button>
             </div>
           </div>
@@ -253,7 +269,7 @@ export function createChatController({
             <span class="chat-side-icon-frame">◐</span>
           </button>
           <button type="button" data-action="toggle-input" aria-label="번역 입력">
-            <span class="chat-side-icon-frame">⌨</span>
+            <span class="chat-side-icon-frame"><span class="chat-text-input-glyph">✎</span></span>
           </button>
           <button type="button" data-action="toggle-composer" aria-label="문자 입력">
             <span class="chat-side-icon-frame">➤</span>
@@ -293,6 +309,7 @@ export function createChatController({
     translationCard: layer.querySelector('.chat-translation-card'),
     translationTextarea: layer.querySelector('.chat-translation-textarea'),
     translatedText: layer.querySelector('.chat-translated-text'),
+    inputIconBar: layer.querySelector('.chat-input-iconbar'),
     languagePanel: layer.querySelector('.chat-language-panel'),
     appearanceEditor: layer.querySelector('.chat-appearance-editor'),
     snapshotModal: layer.querySelector('.chat-snapshot-modal'),
@@ -354,11 +371,13 @@ export function createChatController({
     liveClient.onConnectionChange = (connected) => {
       if (!connected) {
         liveAudioPlayer.stop();
+        stopLiveMicrophone({ keepPreference: true });
       }
       chatState.connectionState = connected ? 'listening' : 'idle';
       update();
     };
     liveClient.onTextDelta = handleAiTextDelta;
+    liveClient.onInputTranscript = handleInputTranscript;
     liveClient.onTurnComplete = handleAiTurnComplete;
     liveClient.onAudioChunk = handleAiAudioChunk;
     liveClient.onInterrupted = handleAiInterrupted;
@@ -370,6 +389,11 @@ export function createChatController({
 
   function handleAiAudioChunk(audioBase64, mimeType) {
     if (!audioBase64) {
+      return;
+    }
+
+    if (isTextInputActive) {
+      liveAudioPlayer.stop();
       return;
     }
 
@@ -394,7 +418,11 @@ export function createChatController({
     return false;
   }
 
-  async function ensureLiveConnected({ sendGreeting = false } = {}) {
+  async function ensureLiveConnected({ sendGreeting = false, startMicrophone = true } = {}) {
+    if (chatState.isRecordingMicEnabled) {
+      return false;
+    }
+
     if (!ensureApiKey()) {
       return false;
     }
@@ -420,11 +448,186 @@ export function createChatController({
       liveClient.sendInitialGreeting();
     }
 
+    if (startMicrophone && wantsLiveMicrophone) {
+      void ensureLiveMicrophone();
+    }
+
     return true;
+  }
+
+  function handleLiveMicrophoneError(message) {
+    chatState.isLiveMicActive = false;
+    chatState.isLiveMicStarting = false;
+    chatState.errorMessage = message;
+    onMessage?.(message);
+    update();
+  }
+
+  async function ensureLiveMicrophone({ explicit = false } = {}) {
+    if (chatState.isRecordingMicEnabled) {
+      return false;
+    }
+
+    if (!explicit && hasTriedAutomaticLiveMicrophone && !chatState.isLiveMicActive) {
+      return false;
+    }
+
+    if (!wantsLiveMicrophone && !explicit) {
+      return false;
+    }
+
+    if (!liveClient?.isConnected()) {
+      return false;
+    }
+
+    if (liveMicrophone.isActive()) {
+      chatState.isLiveMicActive = true;
+      chatState.isLiveMicStarting = false;
+      update();
+      return true;
+    }
+
+    if (!explicit) {
+      hasTriedAutomaticLiveMicrophone = true;
+    }
+
+    chatState.isLiveMicStarting = true;
+    update();
+    const didStart = await liveMicrophone.start();
+    chatState.isLiveMicStarting = false;
+    chatState.isLiveMicActive = didStart;
+    if (didStart) {
+      chatState.errorMessage = '';
+    }
+    update();
+    return didStart;
+  }
+
+  function stopLiveMicrophone({ keepPreference = false } = {}) {
+    if (!keepPreference) {
+      wantsLiveMicrophone = false;
+    }
+    liveMicrophone.stop();
+    liveMicrophoneSpeechStreak = 0;
+    chatState.isLiveMicActive = false;
+    chatState.isLiveMicStarting = false;
+    update();
+  }
+
+  function pauseMainLiveMicrophoneForInput() {
+    liveMicrophone.stop();
+    liveMicrophoneSpeechStreak = 0;
+    chatState.isLiveMicActive = false;
+    chatState.isLiveMicStarting = false;
+  }
+
+  function resumeMainLiveMicrophoneIfWanted() {
+    if (chatState.isRecordingMicEnabled || !wantsLiveMicrophone || !liveClient?.isConnected()) {
+      return;
+    }
+    void ensureLiveMicrophone({ explicit: true });
+  }
+
+  function setTextInputActive(active) {
+    isTextInputActive = active;
+    if (!active) {
+      return;
+    }
+
+    liveAudioPlayer.stop();
+    liveMicrophoneSpeechStreak = 0;
+    if (currentAiMessageId) {
+      const message = getMessageById(chatState, currentAiMessageId);
+      if (message) {
+        message.status = 'ready';
+      }
+    }
+    currentAiText = '';
+    currentAiMessageId = null;
+    chatState.currentAiMessageId = null;
+    if (hasActiveChatApiKey()) {
+      chatState.connectionState = 'listening';
+    }
+  }
+
+  function clearInputTranslation() {
+    chatState.input.translatedText = '';
+    lastInputTranslationKey = '';
+  }
+
+  function deactivateInputMic({ resumeMain = true } = {}) {
+    chatState.input.isInputMicActive = false;
+    setTextInputActive(false);
+    stopSpeechRecognition();
+    if (resumeMain) {
+      resumeMainLiveMicrophoneIfWanted();
+    }
+  }
+
+  function handleLiveMicrophoneChunk(base64, metrics = {}) {
+    if (!base64 || !liveClient?.isConnected()) {
+      return;
+    }
+
+    const rms = metrics.rms ?? 0;
+    const peak = metrics.peak ?? 0;
+    const looksLikeSpeech = rms >= LIVE_MIC_SPEECH_RMS_THRESHOLD
+      || peak >= LIVE_MIC_SPEECH_PEAK_THRESHOLD;
+
+    if (looksLikeSpeech) {
+      liveMicrophoneSpeechStreak += 1;
+    } else {
+      liveMicrophoneSpeechStreak = 0;
+    }
+
+    if (liveAudioPlayer.isPlaying() && liveMicrophoneSpeechStreak >= 2) {
+      liveAudioPlayer.stop();
+      chatState.connectionState = 'listening';
+      update();
+    }
+
+    liveClient.sendAudio(base64, 'audio/pcm;rate=16000');
+  }
+
+  function handleInputTranscript(text) {
+    if (!text) {
+      return;
+    }
+
+    if (isTextInputActive && chatState.input.isVisible && chatState.input.isInputMicActive) {
+      chatState.input.value = `${chatState.input.value}${text}`;
+      clearInputTranslation();
+      scheduleAutoTranslation();
+      update();
+      return;
+    }
+
+    const now = Date.now();
+    const lastMessage = chatState.messages[chatState.messages.length - 1];
+    const shouldExtendLastUserMessage = lastMessage
+      && lastMessage.role === 'user'
+      && now - lastMessage.createdAt < INPUT_TRANSCRIPT_MERGE_MS;
+
+    if (shouldExtendLastUserMessage) {
+      lastMessage.text = `${lastMessage.text}${text}`;
+      lastMessage.createdAt = now;
+    } else if (text.trim()) {
+      chatState.messages.push(createUserMessage(text));
+    }
+
+    chatState.isOpen = true;
+    chatState.isSending = true;
+    chatState.connectionState = liveAudioPlayer.isPlaying() ? 'speaking' : 'processing';
+    update();
+    scrollToEnd();
   }
 
   function handleAiTextDelta(text) {
     if (!text) {
+      return;
+    }
+
+    if (isTextInputActive) {
       return;
     }
 
@@ -449,10 +652,30 @@ export function createChatController({
 
   function handleAiInterrupted() {
     liveAudioPlayer.stop();
+    if (isTextInputActive) {
+      currentAiText = '';
+      currentAiMessageId = null;
+      chatState.currentAiMessageId = null;
+      if (hasActiveChatApiKey()) {
+        chatState.connectionState = 'listening';
+      }
+      update();
+      return;
+    }
     handleAiTurnComplete();
   }
 
   function handleAiTurnComplete() {
+    if (isTextInputActive) {
+      currentAiText = '';
+      currentAiMessageId = null;
+      chatState.currentAiMessageId = null;
+      chatState.isSending = false;
+      chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
+      update();
+      return;
+    }
+
     if (currentAiMessageId) {
       const message = getMessageById(chatState, currentAiMessageId);
       if (message) {
@@ -679,11 +902,18 @@ export function createChatController({
   }
 
   function startSpeechRecognition() {
+    if (chatState.isRecordingMicEnabled) {
+      return;
+    }
+
     stopSpeechRecognition();
+    pauseMainLiveMicrophoneForInput();
+    setTextInputActive(true);
     const recognition = createSpeechRecognition({
       language: getTranslationLanguageSpeechLocale(chatState.input.sourceLanguageCode) ?? 'ko-KR',
       onText: (text) => {
         chatState.input.value = `${chatState.input.value}${text}`;
+        clearInputTranslation();
         scheduleAutoTranslation();
         update();
       },
@@ -694,14 +924,18 @@ export function createChatController({
       },
       onError: () => {
         chatState.input.isInputMicActive = false;
+        setTextInputActive(false);
         speechRecognitionShouldRestart = false;
+        resumeMainLiveMicrophoneIfWanted();
         update();
       },
     });
 
     if (!recognition) {
       chatState.input.isInputMicActive = false;
+      setTextInputActive(false);
       onMessage?.('이 브라우저는 음성 입력을 지원하지 않습니다.');
+      resumeMainLiveMicrophoneIfWanted();
       return;
     }
 
@@ -711,7 +945,9 @@ export function createChatController({
       recognition.start();
     } catch {
       chatState.input.isInputMicActive = false;
+      setTextInputActive(false);
       speechRecognitionShouldRestart = false;
+      resumeMainLiveMicrophoneIfWanted();
     }
   }
 
@@ -720,7 +956,21 @@ export function createChatController({
       clearTimeout(autoTranslationTimer);
     }
 
-    if (!chatState.input.isInputMicActive || chatState.input.isSpeaking) {
+    if (!chatState.input.isVisible || chatState.input.isSpeaking) {
+      return;
+    }
+
+    const trimmed = chatState.input.value.trim();
+    if (!trimmed || chatState.input.sourceLanguageCode === chatState.input.targetLanguageCode) {
+      return;
+    }
+
+    const translationKey = [
+      chatState.input.sourceLanguageCode,
+      chatState.input.targetLanguageCode,
+      normalizeSourceText(trimmed, chatState.input.sourceLanguageCode),
+    ].join(':');
+    if (translationKey === lastInputTranslationKey) {
       return;
     }
 
@@ -752,6 +1002,7 @@ export function createChatController({
     try {
       const refined = await textRefiner.refine(trimmed);
       chatState.input.value = normalizeKoreanSpacing(refined || trimmed);
+      clearInputTranslation();
     } catch (error) {
       chatState.errorMessage = toChatErrorMessage(error);
     } finally {
@@ -781,6 +1032,15 @@ export function createChatController({
       finalSourceText = normalizeSourceText(finalSourceText, sourceLanguageCode);
       chatState.input.value = finalSourceText;
 
+      const translationKey = [
+        sourceLanguageCode,
+        targetLanguageCode,
+        finalSourceText,
+      ].join(':');
+      if (translationKey === lastInputTranslationKey && chatState.input.translatedText.trim()) {
+        return;
+      }
+
       const translated = await googleTranslator.translate(
         finalSourceText,
         sourceLanguageCode,
@@ -788,6 +1048,7 @@ export function createChatController({
       );
 
       chatState.input.translatedText = translated;
+      lastInputTranslationKey = translationKey;
       if (autoSpeak && translated.trim()) {
         void speakInputTranslation();
       }
@@ -805,6 +1066,7 @@ export function createChatController({
       return;
     }
 
+    pauseMainLiveMicrophoneForInput();
     chatState.input.isSpeaking = true;
     update();
     try {
@@ -814,7 +1076,7 @@ export function createChatController({
           const audioSource = await Promise.race([
             ttsClient.generateAudio(translated),
             new Promise((resolve) => {
-              setTimeout(() => resolve(''), 500);
+              setTimeout(() => resolve(''), AUTO_TRANSLATION_TTS_WAIT_MS);
             }),
           ]);
           if (audioSource) {
@@ -844,9 +1106,9 @@ export function createChatController({
       }
     } finally {
       chatState.input.isSpeaking = false;
-      chatState.input.isInputMicActive = false;
-      stopSpeechRecognition();
+      deactivateInputMic({ resumeMain: false });
       update();
+      resumeMainLiveMicrophoneIfWanted();
     }
   }
 
@@ -854,23 +1116,55 @@ export function createChatController({
     chatState.input.isVisible = !chatState.input.isVisible;
     if (chatState.input.isVisible) {
       chatState.input.value = '';
-      chatState.input.translatedText = '';
+      clearInputTranslation();
       chatState.input.isInputMicActive = true;
       chatState.composer.isVisible = false;
       startSpeechRecognition();
     } else {
-      chatState.input.isInputMicActive = false;
-      stopSpeechRecognition();
+      deactivateInputMic();
     }
     update();
+  }
+
+  function toggleLiveMicrophone() {
+    chatState.isRecordingMicEnabled = !chatState.isRecordingMicEnabled;
+    if (chatState.isRecordingMicEnabled) {
+      deactivateInputMic({ resumeMain: false });
+      stopLiveMicrophone({ keepPreference: true });
+      liveAudioPlayer.stop();
+      audioPlayer.stop();
+      speechSynthesizer.stop();
+      liveClient?.disconnect();
+      currentAiText = '';
+      currentAiMessageId = null;
+      chatState.currentAiMessageId = null;
+      chatState.connectionState = 'idle';
+      chatState.isSending = false;
+      chatState.errorMessage = '';
+      onMessage?.('녹화 마이크 모드입니다. AI 대화를 끊었습니다.');
+      update();
+      return;
+    }
+
+    wantsLiveMicrophone = true;
+    hasTriedAutomaticLiveMicrophone = false;
+    onMessage?.('녹화 마이크 모드를 껐습니다. AI 대화를 다시 연결합니다.');
+    update();
+    if (hasActiveChatApiKey()) {
+      void ensureLiveConnected({
+        sendGreeting: !hasSentInitialGreeting && chatState.messages.length === 0,
+        startMicrophone: true,
+      }).catch((error) => {
+        appendErrorMessage(toChatErrorMessage(error));
+      });
+    }
   }
 
   function toggleComposer() {
     chatState.composer.isVisible = !chatState.composer.isVisible;
     if (chatState.composer.isVisible) {
       chatState.input.isVisible = false;
-      chatState.input.isInputMicActive = false;
-      stopSpeechRecognition();
+      deactivateInputMic();
     }
     update();
     if (chatState.composer.isVisible) {
@@ -957,9 +1251,11 @@ export function createChatController({
   }
 
   function scrollToEnd() {
-    setTimeout(() => {
+    const scroll = () => {
       elements.messageList.scrollTop = elements.messageList.scrollHeight;
-    }, 50);
+    };
+    requestAnimationFrame(scroll);
+    setTimeout(scroll, 80);
   }
 
   function renderMessages() {
@@ -1202,8 +1498,10 @@ export function createChatController({
     elements.translationInput.hidden = !input.isVisible;
     elements.translationTextarea.value = input.value;
     elements.translationTextarea.style.color = chatState.appearance.inputKoreanTextColor;
-    elements.translationTextarea.style.backgroundColor = chatState.appearance.inputBackgroundColor;
+    elements.translationTextarea.style.backgroundColor = 'transparent';
     elements.translationCard.style.backgroundColor = chatState.appearance.inputBackgroundColor;
+    elements.inputIconBar.style.backgroundColor = chatState.appearance.inputBackgroundColor;
+    elements.inputIconBar.style.color = chatState.appearance.inputKoreanTextColor;
     elements.translatedText.style.color = chatState.appearance.inputEnglishTextColor;
     elements.translatedText.textContent = input.translatedText;
     elements.translationCard.classList.toggle('language-open', input.isLanguagePanelVisible);
@@ -1425,7 +1723,7 @@ export function createChatController({
         if (chatState.input.isInputMicActive) {
           startSpeechRecognition();
         } else {
-          stopSpeechRecognition();
+          deactivateInputMic();
         }
         update();
         break;
@@ -1433,7 +1731,7 @@ export function createChatController({
         void refineInput();
         break;
       case 'input-translate':
-        void translateInput();
+        void translateInput({ autoSpeak: true });
         break;
       case 'toggle-language-panel':
         chatState.input.isLanguagePanelVisible = !chatState.input.isLanguagePanelVisible;
@@ -1444,14 +1742,14 @@ export function createChatController({
         break;
       case 'input-clear':
         chatState.input.value = '';
-        chatState.input.translatedText = '';
+        clearInputTranslation();
         update();
         break;
       case 'input-submit': {
         const text = chatState.input.value.trim();
         if (text) {
           chatState.input.value = '';
-          chatState.input.translatedText = '';
+          clearInputTranslation();
           void sendTextTurn(text);
         }
         break;
@@ -1473,7 +1771,7 @@ export function createChatController({
         } else if (code !== chatState.input.targetLanguageCode) {
           chatState.input.sourceLanguageCode = code;
         }
-        chatState.input.translatedText = '';
+        clearInputTranslation();
         chatState.input.isLanguagePanelVisible = false;
         update();
         break;
@@ -1485,6 +1783,7 @@ export function createChatController({
         chatState.input.targetLanguageCode = previousSource;
         chatState.input.value = chatState.input.translatedText;
         chatState.input.translatedText = previousValue;
+        lastInputTranslationKey = '';
         update();
         break;
       }
@@ -1532,6 +1831,7 @@ export function createChatController({
 
   function handleGlobalAudioUnlock() {
     liveAudioPlayer.unlock();
+    liveMicrophone.unlock();
   }
 
   function handlePointerDown(event) {
@@ -1576,7 +1876,7 @@ export function createChatController({
 
   elements.translationTextarea.addEventListener('input', () => {
     chatState.input.value = elements.translationTextarea.value;
-    chatState.input.translatedText = '';
+    clearInputTranslation();
     scheduleAutoTranslation();
   });
 
@@ -1595,7 +1895,7 @@ export function createChatController({
     start() {
       render();
       if (hasActiveChatApiKey()) {
-        void ensureLiveConnected({ sendGreeting: true }).catch((error) => {
+        void ensureLiveConnected({ sendGreeting: true, startMicrophone: false }).catch((error) => {
           chatState.errorMessage = toChatErrorMessage(error);
           update();
         });
@@ -1603,6 +1903,7 @@ export function createChatController({
     },
     stop() {
       liveClient?.disconnect();
+      stopLiveMicrophone({ keepPreference: true });
       stopSpeechRecognition();
       liveAudioPlayer.stop();
       audioPlayer.stop();
@@ -1614,16 +1915,19 @@ export function createChatController({
       chatState.isOpen = !chatState.isOpen;
       if (!chatState.isOpen) {
         liveAudioPlayer.stop();
+        stopLiveMicrophone({ keepPreference: true });
         chatState.layout = 'default';
         chatState.showAppearanceEditor = false;
         chatState.composer.isVisible = false;
         chatState.input.isVisible = false;
-        chatState.input.isInputMicActive = false;
-        stopSpeechRecognition();
+        deactivateInputMic({ resumeMain: false });
       }
       update();
-      if (chatState.isOpen && hasActiveChatApiKey() && !hasSentInitialGreeting && chatState.messages.length === 0) {
-        void ensureLiveConnected({ sendGreeting: true }).catch((error) => {
+      if (chatState.isOpen && hasActiveChatApiKey() && !chatState.isRecordingMicEnabled) {
+        void ensureLiveConnected({
+          sendGreeting: !hasSentInitialGreeting && chatState.messages.length === 0,
+          startMicrophone: true,
+        }).catch((error) => {
           appendErrorMessage(toChatErrorMessage(error));
         });
       }
@@ -1642,6 +1946,10 @@ export function createChatController({
     handleToolbarFeature(featureId) {
       if (featureId === 'chat') {
         this.toggleChat();
+        return true;
+      }
+      if (featureId === 'mic') {
+        toggleLiveMicrophone();
         return true;
       }
       if (featureId === 'columns') {

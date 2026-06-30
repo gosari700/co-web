@@ -15,6 +15,14 @@ function readServerText(serverContent) {
     .join('');
 }
 
+function readServerInputText(serverContent) {
+  return (
+    serverContent?.inputTranscription?.text
+    ?? serverContent?.input_audio_transcription?.text
+    ?? ''
+  ).replace(/<noise>/g, '');
+}
+
 export class GeminiLiveTextClient {
   constructor(config) {
     this.config = config;
@@ -23,6 +31,7 @@ export class GeminiLiveTextClient {
     this.connectPromise = null;
     this.onConnectionChange = null;
     this.onAudioChunk = null;
+    this.onInputTranscript = null;
     this.onTextDelta = null;
     this.onTurnComplete = null;
     this.onInterrupted = null;
@@ -147,6 +156,36 @@ export class GeminiLiveTextClient {
     return true;
   }
 
+  sendAudio(base64, mimeType = 'audio/pcm;rate=16000') {
+    if (!base64 || !this.isConnected()) {
+      return false;
+    }
+
+    if (this.usesTypedRealtimeMediaInput()) {
+      this.ws?.send(JSON.stringify({
+        realtimeInput: {
+          audio: {
+            mimeType,
+            data: base64,
+          },
+        },
+      }));
+      return true;
+    }
+
+    this.ws?.send(JSON.stringify({
+      realtimeInput: {
+        mediaChunks: [
+          {
+            mimeType,
+            data: base64,
+          },
+        ],
+      },
+    }));
+    return true;
+  }
+
   sendSilentContextWithoutTurn(text) {
     const trimmed = text.trim();
     if (!trimmed || !this.isConnected()) {
@@ -179,6 +218,10 @@ export class GeminiLiveTextClient {
       },
     }));
     return true;
+  }
+
+  usesTypedRealtimeMediaInput() {
+    return this.config.model === 'gemini-3.1-flash-live-preview';
   }
 
   sendSetup() {
@@ -250,6 +293,11 @@ export class GeminiLiveTextClient {
     const serverContent = message.serverContent;
     if (!serverContent) {
       return;
+    }
+
+    const inputTranscript = readServerInputText(serverContent);
+    if (inputTranscript.trim()) {
+      this.onInputTranscript?.(inputTranscript);
     }
 
     const text = readServerText(serverContent);

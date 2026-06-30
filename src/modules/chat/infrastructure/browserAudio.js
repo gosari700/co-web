@@ -4,6 +4,61 @@ function wait(ms) {
   });
 }
 
+function clampSample(value) {
+  return Math.max(-1, Math.min(1, value));
+}
+
+function encodePcm16Base64(samples) {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < samples.length; index += 1) {
+    const clamped = clampSample(samples[index]);
+    const value = clamped < 0
+      ? Math.round(clamped * 32768)
+      : Math.round(clamped * 32767);
+    view.setInt16(index * 2, value, true);
+  }
+
+  let binary = '';
+  const chunkSize = 8192;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function measureSamples(samples) {
+  if (!samples.length) {
+    return { rms: 0, peak: 0 };
+  }
+
+  let sumSquares = 0;
+  let peak = 0;
+  for (const sample of samples) {
+    const absolute = Math.abs(sample);
+    sumSquares += sample * sample;
+    if (absolute > peak) {
+      peak = absolute;
+    }
+  }
+
+  return {
+    rms: Math.sqrt(sumSquares / samples.length),
+    peak,
+  };
+}
+
+function formatMicrophoneError(error) {
+  const name = error?.name ?? '';
+  if (/NotAllowed|Security/i.test(name)) {
+    return '마이크 권한이 필요합니다.';
+  }
+  if (/NotFound|DevicesNotFound/i.test(name)) {
+    return '사용 가능한 마이크를 찾을 수 없습니다.';
+  }
+  return '마이크 입력을 시작할 수 없습니다.';
+}
+
 export class BrowserAudioPlayer {
   constructor() {
     this.currentAudio = null;
@@ -172,6 +227,175 @@ export class BrowserLiveAudioPlayer {
         // Ignore closed audio contexts.
       }
     }
+  }
+}
+
+export class BrowserLiveMicrophone {
+  constructor({
+    sampleRate = 16000,
+    chunkMs = 100,
+    onChunk,
+    onError,
+  } = {}) {
+    this.sampleRate = sampleRate;
+    this.chunkSampleCount = Math.floor(sampleRate * (chunkMs / 1000));
+    this.onChunk = onChunk;
+    this.onError = onError;
+    this.audioContext = null;
+    this.stream = null;
+    this.sourceNode = null;
+    this.processorNode = null;
+    this.silenceNode = null;
+    this.pendingSamples = [];
+  }
+
+  isActive() {
+    return Boolean(this.stream && this.processorNode);
+  }
+
+  unlock() {
+    if (this.audioContext?.state === 'suspended') {
+      void this.audioContext.resume().catch(() => {});
+    }
+  }
+
+  async start() {
+    if (this.isActive()) {
+      this.unlock();
+      return true;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.onError?.('이 브라우저는 마이크 입력을 지원하지 않습니다.');
+      return false;
+    }
+
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      this.onError?.('이 브라우저는 실시간 오디오 처리를 지원하지 않습니다.');
+      return false;
+    }
+
+    this.stop();
+
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+        video: false,
+      });
+
+      try {
+        this.audioContext = new AudioContextCtor({ sampleRate: this.sampleRate });
+      } catch {
+        this.audioContext = new AudioContextCtor();
+      }
+
+      this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
+      this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+      this.silenceNode = this.audioContext.createGain();
+      this.silenceNode.gain.value = 0;
+      this.processorNode.onaudioprocess = (event) => {
+        this.handleAudioProcess(event.inputBuffer);
+      };
+
+      this.sourceNode.connect(this.processorNode);
+      this.processorNode.connect(this.silenceNode);
+      this.silenceNode.connect(this.audioContext.destination);
+      this.unlock();
+      return true;
+    } catch (error) {
+      this.stop();
+      this.onError?.(formatMicrophoneError(error));
+      return false;
+    }
+  }
+
+  stop() {
+    this.pendingSamples = [];
+
+    if (this.processorNode) {
+      this.processorNode.onaudioprocess = null;
+      try {
+        this.processorNode.disconnect();
+      } catch {
+        // Ignore stale node disconnect failures.
+      }
+      this.processorNode = null;
+    }
+
+    if (this.sourceNode) {
+      try {
+        this.sourceNode.disconnect();
+      } catch {
+        // Ignore stale node disconnect failures.
+      }
+      this.sourceNode = null;
+    }
+
+    if (this.silenceNode) {
+      try {
+        this.silenceNode.disconnect();
+      } catch {
+        // Ignore stale node disconnect failures.
+      }
+      this.silenceNode = null;
+    }
+
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      this.stream = null;
+    }
+
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      void this.audioContext.close().catch(() => {});
+    }
+    this.audioContext = null;
+  }
+
+  handleAudioProcess(inputBuffer) {
+    if (!this.onChunk || this.chunkSampleCount <= 0) {
+      return;
+    }
+
+    const input = inputBuffer.getChannelData(0);
+    const resampled = this.resample(input, inputBuffer.sampleRate);
+    for (let index = 0; index < resampled.length; index += 1) {
+      this.pendingSamples.push(resampled[index]);
+    }
+
+    while (this.pendingSamples.length >= this.chunkSampleCount) {
+      const samples = this.pendingSamples.splice(0, this.chunkSampleCount);
+      this.onChunk(encodePcm16Base64(samples), measureSamples(samples));
+    }
+  }
+
+  resample(input, inputSampleRate) {
+    if (inputSampleRate === this.sampleRate) {
+      return input;
+    }
+
+    const ratio = inputSampleRate / this.sampleRate;
+    const outputLength = Math.floor(input.length / ratio);
+    const output = new Float32Array(outputLength);
+    for (let outputIndex = 0; outputIndex < outputLength; outputIndex += 1) {
+      const start = Math.floor(outputIndex * ratio);
+      const end = Math.max(start + 1, Math.floor((outputIndex + 1) * ratio));
+      let sum = 0;
+      let count = 0;
+      for (let inputIndex = start; inputIndex < end && inputIndex < input.length; inputIndex += 1) {
+        sum += input[inputIndex];
+        count += 1;
+      }
+      output[outputIndex] = count ? sum / count : input[start] ?? 0;
+    }
+    return output;
   }
 }
 

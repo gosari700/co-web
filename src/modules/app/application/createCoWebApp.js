@@ -53,9 +53,10 @@ export function createCoWebApp({ root }) {
       const feature = button.dataset.feature;
       const isChatActive = feature === 'chat' && state.chat?.isOpen;
       const isChatColumnActive = feature === 'columns' && state.chat?.showSideColumn;
+      const isRecordingMicActive = feature === 'mic' && state.chat?.isRecordingMicEnabled;
       button.classList.toggle(
         'active',
-        isChatActive || isChatColumnActive || feature === state.activeFeature,
+        isChatActive || isChatColumnActive || isRecordingMicActive || feature === state.activeFeature,
       );
     });
   };

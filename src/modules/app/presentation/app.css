@@ -392,10 +392,13 @@ button {
 .chat-message-list {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
+  display: block;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  pointer-events: auto;
   padding: 10px 12px 44px;
   scrollbar-width: thin;
 }
@@ -412,6 +415,7 @@ button {
 
 .chat-bubble {
   position: relative;
+  flex: 0 0 auto;
   width: fit-content;
   min-width: 44px;
   margin-bottom: 8px;
@@ -635,6 +639,15 @@ button {
   border-width: 2px;
   color: #ffffff;
   box-shadow: 0 0 6px rgba(22, 119, 255, 0.55);
+}
+
+.chat-text-input-glyph {
+  display: inline-block;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  transform: rotate(90deg);
+  transform-origin: center;
 }
 
 .chat-palette-glyph {
@@ -970,11 +983,13 @@ button {
   left: 12px;
   right: 12px;
   top: 13px;
+  z-index: 2;
   min-height: 40px;
   font-size: 17px;
   font-weight: 500;
   line-height: 22px;
   white-space: pre-wrap;
+  pointer-events: none;
 }
 
 .chat-translation-textarea {
@@ -984,6 +999,7 @@ button {
   top: 0;
   bottom: 32px;
   width: 100%;
+  z-index: 1;
   resize: none;
   padding: 77px 12px 4px;
   border: 0;
@@ -1005,6 +1021,7 @@ button {
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 3;
   height: 32px;
   display: flex;
   align-items: center;
@@ -1015,14 +1032,28 @@ button {
 
 .chat-input-iconbar button {
   min-width: 29px;
+  height: 29px;
   padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.5;
   font-size: 17px;
   font-weight: 700;
+  color: inherit;
 }
 
 .chat-input-iconbar button.active {
   opacity: 1;
+}
+
+.chat-input-translate-icon {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12.87 15.07l-2.54-2.51.03-.03C12.1 10.59 13.34 8.36 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12.87 15.07l-2.54-2.51.03-.03C12.1 10.59 13.34 8.36 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .chat-language-panel {

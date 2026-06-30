@@ -12,6 +12,9 @@ export function createChatState() {
     messages: [],
     currentAiMessageId: null,
     connectionState: 'idle',
+    isLiveMicActive: false,
+    isLiveMicStarting: false,
+    isRecordingMicEnabled: false,
     errorMessage: '',
     isSending: false,
     composer: {
