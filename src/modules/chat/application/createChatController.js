@@ -20,6 +20,7 @@ import {
   splitChatMessageLines,
   toGroundedSearchMessage,
 } from '../domain/chatMessages.js';
+import { resolveChatLanguageCode } from '../domain/chatLanguage.js';
 import { createChatState } from '../domain/createChatState.js';
 import { shouldUseGroundedSearch } from '../domain/groundedSearchIntent.js';
 import {
@@ -736,11 +737,12 @@ export function createChatController({
     return message;
   }
 
-  async function sendTextTurn(text) {
+  async function sendTextTurn(text, options = {}) {
     const trimmed = text.trim();
     if (!trimmed) {
       return false;
     }
+    const responseLanguageCode = options.languageCode ?? '';
 
     chatState.isOpen = true;
     liveAudioPlayer.stop();
@@ -751,8 +753,8 @@ export function createChatController({
     scrollToEnd();
 
     if (shouldUseGroundedSearch(trimmed)) {
-      appendAiMessage(buildGroundedSearchHandoff(trimmed), 'live');
-      await runGroundedSearch(trimmed);
+      appendAiMessage(buildGroundedSearchHandoff(trimmed, responseLanguageCode), 'live');
+      await runGroundedSearch(trimmed, { languageCode: responseLanguageCode });
       chatState.isSending = false;
       update();
       return true;
@@ -767,7 +769,7 @@ export function createChatController({
       }
       currentAiText = '';
       currentAiMessageId = null;
-      liveClient.sendTextTurn(buildTypedUserTurn(trimmed));
+      liveClient.sendTextTurn(buildTypedUserTurn(trimmed, responseLanguageCode));
       return true;
     } catch (error) {
       appendErrorMessage(toChatErrorMessage(error));
@@ -775,7 +777,7 @@ export function createChatController({
     }
   }
 
-  async function runGroundedSearch(query) {
+  async function runGroundedSearch(query, options = {}) {
     try {
       if (!groundedSearchClient) {
         if (!ensureApiKey()) {
@@ -784,10 +786,12 @@ export function createChatController({
         createClients();
       }
 
-      const result = await groundedSearchClient.searchLatestInfo(query);
+      const result = await groundedSearchClient.searchLatestInfo(query, new Date(), {
+        languageCode: options.languageCode ?? '',
+      });
       appendAiMessage(result.displayText, 'analysis');
     } catch (error) {
-      appendAiMessage(toGroundedSearchMessage(error, query), 'analysis');
+      appendAiMessage(toGroundedSearchMessage(error, query, options.languageCode ?? ''), 'analysis');
     }
   }
 
@@ -899,7 +903,7 @@ export function createChatController({
           repeatCount,
           CHAT_CONFIG.ttsRepeatDelayMs,
           {
-            language: containsKorean(trimmed) ? 'ko-KR' : 'en-US',
+            language: getTranslationLanguageSpeechLocale(resolveChatLanguageCode(trimmed)) ?? 'en-US',
             pitch: 1.08,
             rate: 0.92,
           },
@@ -1773,9 +1777,10 @@ export function createChatController({
       case 'input-submit': {
         const text = chatState.input.value.trim();
         if (text) {
+          const languageCode = chatState.input.sourceLanguageCode;
           chatState.input.value = '';
           clearInputTranslation();
-          void sendTextTurn(text);
+          void sendTextTurn(text, { languageCode });
         }
         break;
       }

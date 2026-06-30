@@ -1,3 +1,8 @@
+import {
+  getChatLanguageName,
+  resolveChatLanguageCode,
+} from '../domain/chatLanguage.js';
+
 const GEMINI_REST_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models';
 const YAHOO_CHART_BASE =
@@ -8,6 +13,50 @@ const SAMSUNG_ELECTRONICS_STOCK_PATTERN =
   /삼성\s*전자|samsung\s+electronics/i;
 const STOCK_PRICE_REQUEST_PATTERN =
   /주가|시세|현재가|가격|stock\s*price|share\s*price|quote|price/i;
+const SOURCE_LABELS = Object.freeze({
+  ko: '출처',
+  en: 'Sources',
+  ja: '出典',
+  'zh-CN': '来源',
+  'zh-TW': '來源',
+  es: 'Fuentes',
+  fr: 'Sources',
+  de: 'Quellen',
+  it: 'Fonti',
+  pt: 'Fontes',
+  ru: 'Источники',
+  vi: 'Nguồn',
+  th: 'แหล่งที่มา',
+  id: 'Sumber',
+  hi: 'स्रोत',
+  ar: 'المصادر',
+  tr: 'Kaynaklar',
+  nl: 'Bronnen',
+  pl: 'Źródła',
+  uk: 'Джерела',
+});
+const DATE_LOCALES = Object.freeze({
+  ko: 'ko-KR',
+  en: 'en-US',
+  ja: 'ja-JP',
+  'zh-CN': 'zh-CN',
+  'zh-TW': 'zh-TW',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  de: 'de-DE',
+  it: 'it-IT',
+  pt: 'pt-PT',
+  ru: 'ru-RU',
+  vi: 'vi-VN',
+  th: 'th-TH',
+  id: 'id-ID',
+  hi: 'hi-IN',
+  ar: 'ar-SA',
+  tr: 'tr-TR',
+  nl: 'nl-NL',
+  pl: 'pl-PL',
+  uk: 'uk-UA',
+});
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null;
@@ -28,8 +77,16 @@ function buildTodayString(date) {
   return `${year}-${month}-${day}`;
 }
 
-function isKoreanRequest(text) {
-  return HANGUL_PATTERN.test(text);
+function getRequestLanguageCode(text, languageCode = '') {
+  return resolveChatLanguageCode(text, languageCode);
+}
+
+function getDisplayLanguageCode(text, languageCode = '') {
+  return getRequestLanguageCode(text, languageCode) ?? 'en';
+}
+
+function isKoreanRequest(text, languageCode = '') {
+  return getRequestLanguageCode(text, languageCode) === 'ko' || HANGUL_PATTERN.test(text);
 }
 
 function isSamsungElectronicsStockQuery(text) {
@@ -37,14 +94,19 @@ function isSamsungElectronicsStockQuery(text) {
     && STOCK_PRICE_REQUEST_PATTERN.test(text);
 }
 
-function buildGroundedPrompt(query, date) {
+function buildGroundedPrompt(query, date, languageCode = '') {
+  const requestLanguageName = getChatLanguageName(getRequestLanguageCode(query, languageCode));
+  const languageRule = requestLanguageName
+    ? `The user's latest request language is ${requestLanguageName}. Reply only in ${requestLanguageName}, unless the user explicitly asks for translation or bilingual practice.`
+    : 'Reply only in the same language as the user’s latest question, unless the user explicitly asks for translation or bilingual practice. Infer the language from the words themselves, and never default to English just because the text uses the Latin alphabet.';
+
   return [
     `TODAY: ${buildTodayString(date)}.`,
     'Use Google Search grounding to answer with the freshest available information.',
     'Use strong expert judgment across politics, economics, society, culture, science, medicine, space, biology, technology, law, and other domains when it helps interpret the search results.',
     'Ground current facts, numbers, prices, schedules, names, and claims in the search results; do not replace fresh evidence with memory.',
-    'Reply in the same language as the user’s latest question.',
-    'For Korean questions, every explanation sentence must be Korean. For English questions, every explanation sentence must be English. Do not mix Korean and English except for quoted words, proper nouns, ticker symbols, URLs, or source names.',
+    languageRule,
+    'For Korean questions, every explanation sentence must be Korean. For English questions, every explanation sentence must be English. For Japanese, Chinese, Spanish, French, German, or any other registered language, every explanation sentence must be in that language. Do not mix languages except for quoted words, proper nouns, ticker symbols, URLs, or source names.',
     'Start with the direct answer, then give only the key context in short, easy-to-scan lines.',
     'For prices, stocks, weather, news, sports, and public facts, include the date or time when available and keep numbers exact.',
     'If sources disagree or the information may have changed, say that clearly.',
@@ -116,7 +178,7 @@ function compactSourceLabel(source) {
     .trim();
 }
 
-function formatDisplayText(text, sources, query) {
+function formatDisplayText(text, sources, query, languageCode = '') {
   const answer = text.trim();
   if (sources.length === 0) {
     return answer;
@@ -133,7 +195,7 @@ function formatDisplayText(text, sources, query) {
     return answer;
   }
 
-  const sourceLabel = isKoreanRequest(query) ? '출처' : 'Sources';
+  const sourceLabel = SOURCE_LABELS[getDisplayLanguageCode(query, languageCode)] ?? SOURCE_LABELS.en;
   return `${answer}\n\n${sourceLabel}: ${labels.join(', ')}`;
 }
 
@@ -151,13 +213,13 @@ function formatSignedPercent(value) {
   return `${sign}${Math.abs(value).toFixed(2)}%`;
 }
 
-function formatMarketTime(seconds, timezone, query) {
+function formatMarketTime(seconds, timezone, query, languageCode = '') {
   if (!seconds) {
     return null;
   }
 
   const date = new Date(seconds * 1000);
-  return new Intl.DateTimeFormat(isKoreanRequest(query) ? 'ko-KR' : 'en-US', {
+  return new Intl.DateTimeFormat(DATE_LOCALES[getDisplayLanguageCode(query, languageCode)] ?? DATE_LOCALES.en, {
     timeZone: timezone || 'Asia/Seoul',
     year: 'numeric',
     month: '2-digit',
@@ -188,7 +250,7 @@ async function readErrorSnippet(response) {
   }
 }
 
-async function searchSamsungElectronicsQuote(query) {
+async function searchSamsungElectronicsQuote(query, languageCode = '') {
   const response = await fetch(`${YAHOO_CHART_BASE}/005930.KS?range=1d&interval=1m`);
   if (!response.ok) {
     throw new Error(`Yahoo quote error ${response.status}: ${await readErrorSnippet(response)}`);
@@ -205,13 +267,14 @@ async function searchSamsungElectronicsQuote(query) {
     asNumber(meta.regularMarketTime),
     asString(meta.exchangeTimezoneName) || 'Asia/Seoul',
     query,
+    languageCode,
   );
   const source = {
     title: 'finance.yahoo.com',
     uri: 'https://finance.yahoo.com/quote/005930.KS',
   };
 
-  const answerLines = isKoreanRequest(query)
+  const answerLines = isKoreanRequest(query, languageCode)
     ? [
       `삼성전자 보통주(005930.KS) 현재가는 ${formatKrw(price)}입니다.`,
       marketTime ? `기준: ${marketTime} KST` : '',
@@ -228,7 +291,7 @@ async function searchSamsungElectronicsQuote(query) {
     ];
 
   return {
-    displayText: formatDisplayText(answerLines.filter(Boolean).join('\n'), [source], query),
+    displayText: formatDisplayText(answerLines.filter(Boolean).join('\n'), [source], query, languageCode),
     sources: [source],
   };
 }
@@ -238,14 +301,15 @@ export class GeminiGroundedSearchClient {
     this.config = config;
   }
 
-  async searchLatestInfo(query, date = new Date()) {
+  async searchLatestInfo(query, date = new Date(), options = {}) {
     const trimmed = query.trim();
+    const languageCode = options.languageCode ?? '';
     if (!trimmed) {
       throw new Error('검색할 질문이 비어 있습니다.');
     }
 
     if (isSamsungElectronicsStockQuery(trimmed)) {
-      return searchSamsungElectronicsQuote(trimmed);
+      return searchSamsungElectronicsQuote(trimmed, languageCode);
     }
 
     const response = await fetch(
@@ -258,7 +322,7 @@ export class GeminiGroundedSearchClient {
         body: JSON.stringify({
           contents: [
             {
-              parts: [{ text: buildGroundedPrompt(trimmed, date) }],
+              parts: [{ text: buildGroundedPrompt(trimmed, date, languageCode) }],
             },
           ],
           tools: [{ google_search: {} }],
@@ -284,7 +348,7 @@ export class GeminiGroundedSearchClient {
     const sources = [...sourceMap.values()].slice(0, MAX_SOURCE_COUNT);
 
     return {
-      displayText: formatDisplayText(text, sources, trimmed),
+      displayText: formatDisplayText(text, sources, trimmed, languageCode),
       sources,
     };
   }
