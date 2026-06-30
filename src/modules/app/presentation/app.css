@@ -313,7 +313,7 @@ button {
   height: 17px;
   background: currentColor;
   box-shadow: 8px 0 0 currentColor, 16px 0 0 currentColor;
-  transform: translateX(-7px);
+  transform: translateX(-9px);
 }
 
 .toolbar-button[data-feature="chat"] .toolbar-icon {
