@@ -51,7 +51,7 @@ export function splitChatMessageLines(text) {
   }
 
   return trimmed
-    .split(/(?<=[.!?])\s+/)
+    .split(/(?<=[.!?])(?:\s+|(?=[가-힣ㄱ-ㅎㅏ-ㅣ]))/)
     .map((line) => line.trim())
     .filter(Boolean);
 }

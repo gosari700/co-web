@@ -458,11 +458,11 @@ button {
 }
 
 .chat-sentence-gap {
-  margin-bottom: 12px;
+  margin-bottom: 18px;
 }
 
 .chat-ai-sentence-gap {
-  margin-bottom: 14px;
+  margin-bottom: 20px;
 }
 
 .chat-message-line {
@@ -495,12 +495,12 @@ button {
   display: inline-block;
   padding-left: 14px;
   font-size: 16px;
-  line-height: 27px;
+  line-height: 28px;
   letter-spacing: 0.4px;
 }
 
 .chat-message-text-korean {
-  line-height: 29px;
+  line-height: 30px;
 }
 
 .chat-translation-line,
