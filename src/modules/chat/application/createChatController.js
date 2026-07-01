@@ -50,7 +50,7 @@ const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
 const INPUT_TRANSCRIPT_MERGE_MS = 10000;
-const GROUNDED_SEARCH_DEBOUNCE_MS = 450;
+const GROUNDED_SEARCH_DEBOUNCE_MS = 1400;
 const GROUNDED_SEARCH_APPEND_RETRY_MS = 350;
 const GROUNDED_SEARCH_LIVE_SUPPRESS_MS = 20000;
 const WAKE_WORD_PATTERN = /\bspeaking\b|\bspeak\s+in\b|스피킹|쓰피킹|스삐킹|쓰삐킹/i;
@@ -898,7 +898,7 @@ export function createChatController({
       return;
     }
 
-    if (isTextInputActive) {
+    if (isTextInputActive || isGroundedSearchLiveSuppressed()) {
       return;
     }
 

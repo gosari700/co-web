@@ -1,7 +1,5 @@
 const YAHOO_CHART_URL =
   'https://query1.finance.yahoo.com/v8/finance/chart/005930.KS?range=1d&interval=1m';
-const NAVER_QUOTE_URL =
-  'https://polling.finance.naver.com/api/realtime/domestic/stock/005930';
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null;
@@ -13,26 +11,6 @@ function asString(value) {
 
 function asNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function parseNumericText(value) {
-  const normalized = `${value ?? ''}`.replace(/,/g, '').trim();
-  if (!normalized) {
-    return null;
-  }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toEpochSeconds(value) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-  const time = date.getTime();
-  return Number.isFinite(time) ? Math.floor(time / 1000) : null;
 }
 
 async function readErrorSnippet(response) {
@@ -84,45 +62,6 @@ async function fetchYahooQuote() {
   };
 }
 
-async function fetchNaverQuote() {
-  const response = await fetch(NAVER_QUOTE_URL, {
-    headers: {
-      Accept: 'application/json',
-      Referer: 'https://finance.naver.com/',
-      'User-Agent': 'Mozilla/5.0',
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Naver quote error ${response.status}: ${await readErrorSnippet(response)}`);
-  }
-
-  const data = await response.json();
-  const item = Array.isArray(data?.datas) ? data.datas[0] : null;
-  if (!isRecord(item)) {
-    throw new Error('Naver quote response was missing Samsung Electronics data.');
-  }
-
-  const price = parseNumericText(item.closePriceRaw) ?? parseNumericText(item.closePrice);
-  const change = parseNumericText(item.compareToPreviousClosePriceRaw)
-    ?? parseNumericText(item.compareToPreviousClosePrice);
-  if (price === null) {
-    throw new Error('Naver quote response was missing Samsung Electronics price.');
-  }
-  const marketStatus = asString(item.marketStatus);
-
-  return {
-    price,
-    previousClose: change === null ? null : price - change,
-    marketTimeEpochSeconds: toEpochSeconds(item.localTradedAt),
-    timezone: item.stockExchangeType?.zoneId || 'Asia/Seoul',
-    sourceTitle: 'finance.naver.com',
-    sourceUri: 'https://finance.naver.com/item/main.naver?code=005930',
-    symbol: '005930.KS',
-    marketStatus,
-    priceKind: marketStatus === 'CLOSE' ? 'regular_close' : 'current',
-  };
-}
-
 function setCorsHeaders(response) {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -144,16 +83,11 @@ export default async function handler(request, response) {
   }
 
   try {
-    response.status(200).json(await fetchNaverQuote());
-  } catch (naverError) {
-    try {
-      response.status(200).json(await fetchYahooQuote());
-    } catch (yahooError) {
-      response.status(502).json({
-        error: 'Samsung Electronics quote lookup failed.',
-        yahooError: yahooError instanceof Error ? yahooError.message : '',
-        naverError: naverError instanceof Error ? naverError.message : '',
-      });
-    }
+    response.status(200).json(await fetchYahooQuote());
+  } catch (error) {
+    response.status(502).json({
+      error: 'Samsung Electronics quote lookup failed.',
+      yahooError: error instanceof Error ? error.message : '',
+    });
   }
 }
