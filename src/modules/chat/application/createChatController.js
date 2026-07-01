@@ -50,6 +50,8 @@ const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
 const INPUT_TRANSCRIPT_MERGE_MS = 10000;
+const WAKE_WORD_PATTERN = /\bspeaking\b|\bspeak\s+in\b|스피킹|쓰피킹|스삐킹|쓰삐킹/i;
+const TYPED_WAKE_WORD_PATTERN = /^speaking$/i;
 const APPEARANCE_PALETTE_WIDTH = 180;
 const APPEARANCE_PALETTE_HEIGHT = 124;
 const APPEARANCE_VALUE_BAR_HEIGHT = 124;
@@ -196,6 +198,7 @@ export function createChatController({
   let isInitialGreetingInProgress = false;
   let shouldStartMicrophoneAfterPlayback = false;
   let isHoldingLiveMicrophoneInputForAi = false;
+  let wakeWordCooldownUntil = 0;
 
   chatState.apiKeyDraft = storedApiKey;
   chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
@@ -661,6 +664,16 @@ export function createChatController({
     chatState.connectionState = liveAudioPlayer.isPlaying() ? 'speaking' : 'processing';
     update();
     scrollToEnd();
+
+    const wakeWordCandidate = shouldExtendLastUserMessage ? lastMessage.text : text;
+    if (
+      (WAKE_WORD_PATTERN.test(text) || WAKE_WORD_PATTERN.test(wakeWordCandidate))
+      && now >= wakeWordCooldownUntil
+    ) {
+      wakeWordCooldownUntil = now + 3000;
+      chatState.isSending = false;
+      showInput();
+    }
 
     // Do not send extra clientContent here. Runtime context updates can interrupt
     // an answer that the Live model has already started speaking.
@@ -1221,6 +1234,16 @@ export function createChatController({
     } else {
       deactivateInputMic();
     }
+    update();
+  }
+
+  function showInput() {
+    chatState.input.isVisible = true;
+    chatState.input.value = '';
+    clearInputTranslation();
+    chatState.input.isInputMicActive = true;
+    chatState.composer.isVisible = false;
+    startSpeechRecognition();
     update();
   }
 
@@ -1967,6 +1990,10 @@ export function createChatController({
     }
     chatState.composer.draft = '';
     elements.composerInput.value = '';
+    if (TYPED_WAKE_WORD_PATTERN.test(draft)) {
+      showInput();
+      return;
+    }
     void sendTextTurn(draft);
   });
 
