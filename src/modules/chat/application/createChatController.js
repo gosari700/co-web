@@ -1180,6 +1180,9 @@ export function createChatController({
     }
 
     pauseMainLiveMicrophoneForInput();
+    speechRecognitionShouldRestart = false;
+    stopSpeechRecognition();
+    chatState.input.isInputMicActive = false;
     chatState.input.isSpeaking = true;
     update();
     try {
