@@ -12,6 +12,9 @@ const FRESHNESS_PATTERN =
 const VOLATILE_TOPIC_PATTERN =
   /대통령|총리|장관|국무총리|시장|도지사|의원|대표|ceo|주가|가격|시세|환율|날씨|기온|미세먼지|태풍|지진|교통|항공|비행기|열차|스코어|점수|경기|결과|순위|일정|개봉|출시|업데이트|버전|사망|부상|선거|여론조사|감독|선수|우승|winner|score|price|stock|exchange\s*rate|weather|schedule|ranking|election|president|prime\s*minister|release/i;
 
+const DIRECT_QUOTE_LOOKUP_PATTERN =
+  /주가|주식\s*가격|현재가|시세|stock\s*price|share\s*price|quote/i;
+
 const INFO_REQUEST_PATTERN =
   /누구|뭐|무엇|어디|언제|얼마|몇|왜|어떻게|알려|상황|소식|정보|결과|되[나니]|인가|야\??$|who|what|where|when|how|why|which|tell|result|status|info/i;
 
@@ -32,6 +35,10 @@ export function shouldUseGroundedSearch(text) {
   }
 
   if (EXPLICIT_SEARCH_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  if (DIRECT_QUOTE_LOOKUP_PATTERN.test(normalized)) {
     return true;
   }
 
