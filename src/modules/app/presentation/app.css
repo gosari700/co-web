@@ -885,21 +885,16 @@ button {
   height: 100%;
 }
 
+.chat-dictionary-frame[hidden],
+.chat-dictionary-gemini-panel[hidden] {
+  display: none;
+}
+
 .chat-dictionary-gemini-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 68px;
-  bottom: 0;
-  z-index: 2;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   background: #f8fafc;
-  pointer-events: auto;
-}
-
-.chat-dictionary-gemini-panel[hidden] {
-  display: none;
 }
 
 .chat-dictionary-gemini-content {

@@ -1,4 +1,6 @@
 const DAUM_DICTIONARY_BASE = 'https://dic.daum.net';
+const MOBILE_WEBVIEW_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0 Mobile Safari/537.36';
 
 function asString(value) {
   return typeof value === 'string' ? value : '';
@@ -28,9 +30,15 @@ function prepareHtml(html) {
   const viewportTag = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
   const styleTag = [
     '<style>',
-    'html,body{margin:0!important;min-height:100%;background:#fff;}',
-    'body{overflow:auto;-webkit-overflow-scrolling:touch;}',
+    'html,body{margin:0!important;min-width:0!important;width:100%!important;max-width:100%!important;min-height:100%;background:#fff;overflow-x:hidden!important;overscroll-behavior-x:none;touch-action:pan-y;}',
+    'body{overflow-y:auto;-webkit-overflow-scrolling:touch;}',
+    '*,*::before,*::after{box-sizing:border-box;max-width:100%;}',
+    'img,video,canvas,svg,table{max-width:100%!important;}',
+    '#kakaoWrap,#mArticle,#daumWrap,#daumContent,#kakaoContent,.wrap_dic,.wrap_search,.section_search,.list_search,.search_word,.box_word{min-width:0!important;width:100%!important;max-width:100%!important;overflow-x:hidden!important;}',
     '</style>',
+    '<script>',
+    '(function(){function lockX(){document.documentElement.scrollLeft=0;if(document.body){document.body.scrollLeft=0;}}window.addEventListener("scroll",lockX,true);window.addEventListener("resize",lockX);setTimeout(lockX,0);setTimeout(lockX,250);})();',
+    '</script>',
   ].join('');
 
   if (/<head[^>]*>/i.test(html)) {
@@ -65,7 +73,7 @@ export default async function handler(request, response) {
       headers: {
         Accept: 'text/html,application/xhtml+xml',
         'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'User-Agent': 'Mozilla/5.0',
+        'User-Agent': MOBILE_WEBVIEW_USER_AGENT,
       },
     });
 

@@ -1908,9 +1908,9 @@ export function createChatController({
       elements.dictionaryFrame.dataset.dictionaryUrl = dictionary.daumUrl;
     }
 
-    elements.dictionaryFrame.hidden = false;
+    elements.dictionaryFrame.hidden = dictionary.isGeminiVisible;
     elements.dictionaryGeminiPanel.hidden = !dictionary.isGeminiVisible;
-    elements.dictionaryGeminiButton.hidden = false;
+    elements.dictionaryGeminiButton.hidden = dictionary.isGeminiVisible;
     elements.dictionaryCloseButton.hidden = false;
     elements.dictionaryCloseButton.setAttribute(
       'aria-label',
