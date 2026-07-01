@@ -45,7 +45,6 @@ import { GeminiTtsClient } from '../infrastructure/geminiTtsClient.js';
 import { GoogleTranslator } from '../infrastructure/googleTranslator.js';
 
 const AUTO_TRANSLATION_DEBOUNCE_MS = 80;
-const AUTO_TRANSLATION_TTS_WAIT_MS = 500;
 const GEMINI_TTS_START_WAIT_MS = 350;
 const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
@@ -1196,12 +1195,7 @@ export function createChatController({
       let didPlayGeminiTts = false;
       if (ttsClient) {
         try {
-          const audioSource = await Promise.race([
-            ttsClient.generateAudio(translated),
-            new Promise((resolve) => {
-              setTimeout(() => resolve(''), AUTO_TRANSLATION_TTS_WAIT_MS);
-            }),
-          ]);
+          const audioSource = await ttsClient.generateAudio(translated);
           if (audioSource) {
             for (let index = 0; index < INPUT_TTS_REPEAT_COUNT; index += 1) {
               await audioPlayer.play(audioSource);
@@ -1954,6 +1948,7 @@ export function createChatController({
   }
 
   function handleGlobalAudioUnlock() {
+    audioPlayer.unlock();
     liveAudioPlayer.unlock();
     liveMicrophone.unlock();
   }

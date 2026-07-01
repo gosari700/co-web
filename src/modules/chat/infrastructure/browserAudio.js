@@ -62,19 +62,97 @@ function formatMicrophoneError(error) {
 export class BrowserAudioPlayer {
   constructor() {
     this.currentAudio = null;
+    this.audioContext = null;
+    this.activeSources = new Set();
+  }
+
+  ensureContext() {
+    if (!this.audioContext || this.audioContext.state === 'closed') {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) {
+        return null;
+      }
+      this.audioContext = new AudioContextCtor();
+    }
+    return this.audioContext;
+  }
+
+  unlock() {
+    const context = this.ensureContext();
+    if (context?.state === 'suspended') {
+      void context.resume().catch(() => {});
+    }
   }
 
   stop() {
-    if (!this.currentAudio) {
-      return;
+    for (const source of this.activeSources) {
+      try {
+        source.stop(0);
+        source.disconnect();
+      } catch {
+        // Ignore stale audio nodes.
+      }
     }
-    this.currentAudio.pause();
-    this.currentAudio.currentTime = 0;
+    this.activeSources.clear();
+
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.currentTime = 0;
+    }
     this.currentAudio = null;
   }
 
-  play(source) {
+  async play(source) {
     this.stop();
+    if (source.startsWith('data:audio/')) {
+      const didPlayWithWebAudio = await this.playWithWebAudio(source).catch(() => false);
+      if (didPlayWithWebAudio) {
+        return;
+      }
+    }
+
+    await this.playWithElement(source);
+  }
+
+  async playWithWebAudio(source) {
+    const context = this.ensureContext();
+    if (!context) {
+      return false;
+    }
+
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const response = await fetch(source);
+    const audioBuffer = await context.decodeAudioData(await response.arrayBuffer());
+
+    await new Promise((resolve, reject) => {
+      const node = context.createBufferSource();
+      node.buffer = audioBuffer;
+      node.connect(context.destination);
+      this.activeSources.add(node);
+      node.onended = () => {
+        this.activeSources.delete(node);
+        try {
+          node.disconnect();
+        } catch {
+          // Ignore stale audio nodes.
+        }
+        resolve();
+      };
+      try {
+        node.start(0);
+      } catch (error) {
+        this.activeSources.delete(node);
+        reject(error);
+      }
+    });
+
+    return true;
+  }
+
+  playWithElement(source) {
     return new Promise((resolve, reject) => {
       const audio = new Audio(source);
       this.currentAudio = audio;
