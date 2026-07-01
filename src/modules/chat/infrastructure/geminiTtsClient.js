@@ -43,8 +43,26 @@ export class GeminiTtsClient {
       return '';
     }
 
+    const models = [
+      this.config.model,
+      this.config.fallbackModel,
+    ].filter((model, index, all) => model && all.indexOf(model) === index);
+    let lastError = null;
+
+    for (const model of models) {
+      try {
+        return await this.generateAudioWithModel(trimmed, model);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error('Gemini TTS failed.');
+  }
+
+  async generateAudioWithModel(trimmed, model) {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${this.config.model}:generateContent?key=${encodeURIComponent(this.config.apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(this.config.apiKey)}`,
       {
         method: 'POST',
         headers: {

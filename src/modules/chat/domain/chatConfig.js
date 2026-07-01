@@ -62,6 +62,7 @@ export const CHAT_CONFIG = Object.freeze({
     'Be super sweet and bright. Make it feel like we are close friends meeting up. ' +
     'Use 2 or 3 short lines. Each time should feel fresh and different.',
   ttsModel: 'gemini-3.1-flash-tts-preview',
+  ttsFallbackModel: 'gemini-2.5-flash-preview-tts',
   ttsVoiceName: 'Aoede',
   ttsPromptPrefix: 'Say cheerfully:',
   ttsRepeatCount: 3,

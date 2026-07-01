@@ -366,6 +366,7 @@ export function createChatController({
     ttsClient = new GeminiTtsClient({
       apiKey: activeApiKeys.chatApiKey,
       model: CHAT_CONFIG.ttsModel,
+      fallbackModel: CHAT_CONFIG.ttsFallbackModel,
       voiceName: CHAT_CONFIG.ttsVoiceName,
       promptPrefix: CHAT_CONFIG.ttsPromptPrefix,
     });
