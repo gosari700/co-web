@@ -808,9 +808,9 @@ button {
 }
 
 .chat-dictionary-popup {
-  position: absolute;
-  inset: 0;
-  z-index: 18;
+  position: fixed;
+  inset: env(safe-area-inset-top, 0px) 0 var(--toolbar-height) 0;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -824,8 +824,9 @@ button {
 }
 
 .chat-dictionary-header {
-  flex: 0 0 auto;
-  min-height: 52px;
+  flex: 0 0 68px;
+  min-height: 68px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -881,18 +882,24 @@ button {
   min-height: 0;
   border: 0;
   background: #ffffff;
-}
-
-.chat-dictionary-frame[hidden],
-.chat-dictionary-gemini-panel[hidden] {
-  display: none;
+  height: 100%;
 }
 
 .chat-dictionary-gemini-panel {
-  flex: 1 1 auto;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 68px;
+  bottom: 0;
+  z-index: 2;
   min-height: 0;
   overflow-y: auto;
   background: #f8fafc;
+  pointer-events: auto;
+}
+
+.chat-dictionary-gemini-panel[hidden] {
+  display: none;
 }
 
 .chat-dictionary-gemini-content {

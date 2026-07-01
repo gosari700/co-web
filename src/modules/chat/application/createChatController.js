@@ -112,7 +112,7 @@ function cleanDictionaryWord(token) {
 }
 
 function getDaumDictionaryUrl(word) {
-  return `https://dic.daum.net/search.do?q=${encodeURIComponent(word)}`;
+  return `/api/daum-dictionary?q=${encodeURIComponent(word)}`;
 }
 
 function tokenizeLineForDictionary(line) {
@@ -487,10 +487,9 @@ export function createChatController({
                 <span>Gemini</span>
               </button>
               <button type="button" data-action="dictionary-close" class="chat-dictionary-icon-button" aria-label="사전 닫기">×</button>
-              <button type="button" data-action="dictionary-hide-gemini" class="chat-dictionary-icon-button" aria-label="Gemini 사전 닫기" hidden>×</button>
             </div>
           </div>
-          <iframe class="chat-dictionary-frame" title="Daum 영어 사전"></iframe>
+          <iframe class="chat-dictionary-frame" title="Daum 영어 사전" referrerpolicy="no-referrer"></iframe>
           <section class="chat-dictionary-gemini-panel" aria-label="Gemini 사전 설명" hidden>
             <div class="chat-dictionary-gemini-content">
               <strong class="chat-dictionary-gemini-title"></strong>
@@ -529,7 +528,6 @@ export function createChatController({
     dictionaryGeminiPanel: layer.querySelector('.chat-dictionary-gemini-panel'),
     dictionaryGeminiButton: layer.querySelector('[data-action="dictionary-show-gemini"]'),
     dictionaryCloseButton: layer.querySelector('[data-action="dictionary-close"]'),
-    dictionaryHideGeminiButton: layer.querySelector('[data-action="dictionary-hide-gemini"]'),
     dictionaryGeminiSpinner: layer.querySelector('.chat-dictionary-spinner'),
     dictionaryGeminiIcon: layer.querySelector('.chat-dictionary-gemini-icon'),
     dictionaryGeminiTitle: layer.querySelector('.chat-dictionary-gemini-title'),
@@ -1896,7 +1894,7 @@ export function createChatController({
       elements.dictionaryFrame.hidden = false;
       elements.dictionaryGeminiButton.hidden = false;
       elements.dictionaryCloseButton.hidden = false;
-      elements.dictionaryHideGeminiButton.hidden = true;
+      elements.dictionaryCloseButton.setAttribute('aria-label', '사전 닫기');
       elements.dictionaryGeminiTitle.textContent = '';
       elements.dictionaryGeminiMessage.textContent = '';
       elements.dictionaryRetryButton.hidden = true;
@@ -1910,11 +1908,14 @@ export function createChatController({
       elements.dictionaryFrame.dataset.dictionaryUrl = dictionary.daumUrl;
     }
 
-    elements.dictionaryFrame.hidden = dictionary.isGeminiVisible;
+    elements.dictionaryFrame.hidden = false;
     elements.dictionaryGeminiPanel.hidden = !dictionary.isGeminiVisible;
-    elements.dictionaryGeminiButton.hidden = dictionary.isGeminiVisible;
-    elements.dictionaryCloseButton.hidden = dictionary.isGeminiVisible;
-    elements.dictionaryHideGeminiButton.hidden = !dictionary.isGeminiVisible;
+    elements.dictionaryGeminiButton.hidden = false;
+    elements.dictionaryCloseButton.hidden = false;
+    elements.dictionaryCloseButton.setAttribute(
+      'aria-label',
+      dictionary.isGeminiVisible ? 'Gemini 사전 닫기' : '사전 닫기',
+    );
     elements.dictionaryGeminiSpinner.hidden = dictionary.geminiStatus !== 'loading';
     elements.dictionaryGeminiIcon.hidden = dictionary.geminiStatus === 'loading';
     elements.dictionaryGeminiButton.classList.toggle('ready', dictionary.geminiStatus === 'ready');
@@ -2355,12 +2356,13 @@ export function createChatController({
         chatState.dictionary.isGeminiVisible = true;
         update();
         break;
-      case 'dictionary-hide-gemini':
-        chatState.dictionary.isGeminiVisible = false;
-        update();
-        break;
       case 'dictionary-close':
-        closeDictionary();
+        if (chatState.dictionary?.isGeminiVisible) {
+          chatState.dictionary.isGeminiVisible = false;
+          update();
+        } else {
+          closeDictionary();
+        }
         break;
       case 'dictionary-retry-gemini':
         retryGeminiDictionary();
