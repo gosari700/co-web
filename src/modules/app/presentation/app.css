@@ -503,6 +503,26 @@ button {
   line-height: 30px;
 }
 
+.chat-dictionary-word {
+  display: inline;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+  vertical-align: baseline;
+  cursor: pointer;
+}
+
+.chat-dictionary-word:active {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .chat-translation-line,
 .chat-literal-line {
   margin-bottom: 4px;
@@ -785,6 +805,149 @@ button {
   color: rgba(255, 255, 255, 0.64);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.chat-dictionary-popup {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+  color: #111827;
+  pointer-events: auto;
+}
+
+.chat-dictionary-popup[hidden] {
+  display: none;
+}
+
+.chat-dictionary-header {
+  flex: 0 0 auto;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  background: #4a4a4a;
+}
+
+.chat-dictionary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-dictionary-gemini-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: 18px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chat-dictionary-gemini-button.ready {
+  background: #15803d;
+}
+
+.chat-dictionary-gemini-button.error {
+  background: #b91c1c;
+}
+
+.chat-dictionary-icon-button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.chat-dictionary-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #ffffff;
+}
+
+.chat-dictionary-frame[hidden],
+.chat-dictionary-gemini-panel[hidden] {
+  display: none;
+}
+
+.chat-dictionary-gemini-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  background: #f8fafc;
+}
+
+.chat-dictionary-gemini-content {
+  min-height: 100%;
+  padding: 18px 18px 56px;
+}
+
+.chat-dictionary-gemini-title {
+  display: block;
+  color: #111827;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.chat-dictionary-gemini-subtitle {
+  display: block;
+  margin: 4px 0 18px;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.chat-dictionary-gemini-message {
+  color: #111827;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 29px;
+  white-space: pre-wrap;
+}
+
+.chat-dictionary-retry {
+  min-height: 36px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.chat-dictionary-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: chat-dictionary-spin 0.8s linear infinite;
+}
+
+@keyframes chat-dictionary-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .chat-appearance-editor {

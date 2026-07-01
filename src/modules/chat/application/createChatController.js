@@ -50,6 +50,8 @@ const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
 const INPUT_TRANSCRIPT_MERGE_MS = 10000;
+const GROUNDED_SEARCH_DEBOUNCE_MS = 1400;
+const GROUNDED_SEARCH_APPEND_RETRY_MS = 350;
 const WAKE_WORD_PATTERN = /\bspeaking\b|\bspeak\s+in\b|스피킹|쓰피킹|스삐킹|쓰삐킹/i;
 const TYPED_WAKE_WORD_PATTERN = /^speaking$/i;
 const APPEARANCE_PALETTE_WIDTH = 180;
@@ -64,6 +66,9 @@ const APPEARANCE_FALLBACK_COLORS = Object.freeze({
   aiBubbleBorderColor: '#7C8798',
   myBubbleBorderColor: '#7C8798',
 });
+const GEMINI_REST_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const DICTIONARY_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const DICTIONARY_GEMINI_MAX_OUTPUT_TOKENS = 2048;
 
 function wait(ms) {
   return new Promise((resolve) => {
@@ -82,6 +87,167 @@ function createButton(label, action, className = '') {
 
 function getMessageById(chatState, messageId) {
   return chatState.messages.find((message) => message.id === messageId) ?? null;
+}
+
+function createDictionaryState() {
+  return {
+    selectedWord: null,
+    daumUrl: '',
+    isOpen: false,
+    isGeminiVisible: false,
+    geminiStatus: 'idle',
+    geminiText: '',
+    geminiError: '',
+  };
+}
+
+function cleanDictionaryWord(token) {
+  const normalized = `${token ?? ''}`
+    .replace(/[’‘]/g, '\'')
+    .replace(/[“”]/g, '"')
+    .trim();
+  const cleaned = normalized.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function getDaumDictionaryUrl(word) {
+  return `https://dic.daum.net/search.do?q=${encodeURIComponent(word)}`;
+}
+
+function tokenizeLineForDictionary(line) {
+  const rawTokens = line.split(/(\s+)/);
+  const tokens = [];
+
+  for (let index = 0; index < rawTokens.length; index += 1) {
+    const token = rawTokens[index];
+    if (!token) {
+      continue;
+    }
+
+    if (/^\s+$/.test(token)) {
+      tokens.push({ displayToken: token, lookupWord: null });
+      continue;
+    }
+
+    let displayToken = token;
+    if (index + 1 < rawTokens.length && /^\s+$/.test(rawTokens[index + 1])) {
+      displayToken += rawTokens[index + 1];
+      index += 1;
+    }
+
+    tokens.push({
+      displayToken,
+      lookupWord: cleanDictionaryWord(token),
+    });
+  }
+
+  return tokens;
+}
+
+function buildDictionaryPrompt(word) {
+  return [
+    'You are a fast, helpful English-Korean learner dictionary.',
+    'Explain the selected word in Korean for a Korean learner.',
+    'Keep it practical and easy to understand, but richer and more useful than a normal dictionary.',
+    'Do not force every word into the same short one-page pattern. For common or important words, give a fuller explanation that can be scrolled.',
+    'If the word can have multiple meanings, prioritize common meanings and note the difference briefly.',
+    'If the word may be a name, abbreviation, slang, typo, or non-English word, say so clearly instead of inventing certainty.',
+    'Do not include markdown fences. Do not mention that you are an AI.',
+    '',
+    'Format exactly like this, in Korean:',
+    '뜻: ...',
+    '품사/발음: ...',
+    '핵심 느낌: ...',
+    '자주 쓰는 상황: ...',
+    '뜻 차이/뉘앙스: ...',
+    '자주 붙는 표현: ...',
+    '예문:',
+    '1. English sentence - Korean meaning',
+    '2. English sentence - Korean meaning',
+    '3. English sentence - Korean meaning',
+    '4. English sentence - Korean meaning',
+    '주의할 점: ...',
+    '비슷한 말/반대말: ...',
+    '',
+    `Word: ${word}`,
+  ].join('\n');
+}
+
+function extractGeminiDictionaryText(data) {
+  return (data.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => part.text ?? '')
+    .join('')
+    .trim();
+}
+
+async function fetchGeminiDictionaryExplanation({
+  word,
+  apiKey,
+  model,
+  maxOutputTokens,
+}) {
+  const trimmed = word.trim();
+  if (!trimmed) {
+    return {
+      success: false,
+      error: '설명할 단어가 비어 있습니다.',
+    };
+  }
+
+  if (!apiKey) {
+    return {
+      success: false,
+      error: 'Gemini API key를 사용할 수 없습니다.',
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${GEMINI_REST_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: buildDictionaryPrompt(trimmed) }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.15,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Gemini 사전 응답 오류 (${response.status})`,
+      };
+    }
+
+    const text = extractGeminiDictionaryText(await response.json());
+    if (!text) {
+      return {
+        success: false,
+        error: 'Gemini 사전 설명이 비어 있습니다.',
+      };
+    }
+
+    return {
+      success: true,
+      text,
+    };
+  } catch {
+    return {
+      success: false,
+      error: 'Gemini 사전 설명을 불러오지 못했습니다.',
+    };
+  }
 }
 
 function getTranslationLines(map, message) {
@@ -199,10 +365,18 @@ export function createChatController({
   let shouldStartMicrophoneAfterPlayback = false;
   let isHoldingLiveMicrophoneInputForAi = false;
   let wakeWordCooldownUntil = 0;
+  let groundedSearchDebounceTimer = null;
+  let groundedSearchAppendTimer = null;
+  let groundedSearchSeq = 0;
+  let pendingGroundedSearchMessage = '';
+  let dictionaryRequestSeq = 0;
+  const groundedSearchRequestedKeys = new Set();
+  const dictionaryGeminiCache = new Map();
 
   chatState.apiKeyDraft = storedApiKey;
   chatState.isApiKeyPanelVisible = !activeApiKeys.chatApiKey;
   chatState.isOpen = false;
+  chatState.dictionary = chatState.dictionary ?? createDictionaryState();
   chatState.snapshots = loadChatSnapshots();
   chatState.appearance = {
     ...createDefaultChatAppearance(),
@@ -302,6 +476,28 @@ export function createChatController({
             <div class="chat-snapshot-list"></div>
           </div>
         </div>
+        <section class="chat-dictionary-popup" aria-label="영어 사전" hidden>
+          <div class="chat-dictionary-header">
+            <div class="chat-dictionary-actions">
+              <button type="button" data-action="dictionary-show-gemini" class="chat-dictionary-gemini-button" aria-label="Gemini 사전 보기">
+                <span class="chat-dictionary-spinner" hidden></span>
+                <span class="chat-dictionary-gemini-icon">✦</span>
+                <span>Gemini</span>
+              </button>
+              <button type="button" data-action="dictionary-close" class="chat-dictionary-icon-button" aria-label="사전 닫기">×</button>
+              <button type="button" data-action="dictionary-hide-gemini" class="chat-dictionary-icon-button" aria-label="Gemini 사전 닫기" hidden>×</button>
+            </div>
+          </div>
+          <iframe class="chat-dictionary-frame" title="Daum 영어 사전"></iframe>
+          <section class="chat-dictionary-gemini-panel" aria-label="Gemini 사전 설명" hidden>
+            <div class="chat-dictionary-gemini-content">
+              <strong class="chat-dictionary-gemini-title"></strong>
+              <span class="chat-dictionary-gemini-subtitle">Gemini 사전 설명</span>
+              <div class="chat-dictionary-gemini-message"></div>
+              <button type="button" data-action="dictionary-retry-gemini" class="chat-dictionary-retry" hidden>다시 불러오기</button>
+            </div>
+          </section>
+        </section>
       </div>
     </section>
   `;
@@ -326,6 +522,17 @@ export function createChatController({
     appearanceEditor: layer.querySelector('.chat-appearance-editor'),
     snapshotModal: layer.querySelector('.chat-snapshot-modal'),
     snapshotList: layer.querySelector('.chat-snapshot-list'),
+    dictionaryPopup: layer.querySelector('.chat-dictionary-popup'),
+    dictionaryFrame: layer.querySelector('.chat-dictionary-frame'),
+    dictionaryGeminiPanel: layer.querySelector('.chat-dictionary-gemini-panel'),
+    dictionaryGeminiButton: layer.querySelector('[data-action="dictionary-show-gemini"]'),
+    dictionaryCloseButton: layer.querySelector('[data-action="dictionary-close"]'),
+    dictionaryHideGeminiButton: layer.querySelector('[data-action="dictionary-hide-gemini"]'),
+    dictionaryGeminiSpinner: layer.querySelector('.chat-dictionary-spinner'),
+    dictionaryGeminiIcon: layer.querySelector('.chat-dictionary-gemini-icon'),
+    dictionaryGeminiTitle: layer.querySelector('.chat-dictionary-gemini-title'),
+    dictionaryGeminiMessage: layer.querySelector('.chat-dictionary-gemini-message'),
+    dictionaryRetryButton: layer.querySelector('[data-action="dictionary-retry-gemini"]'),
   };
 
   function update() {
@@ -652,11 +859,14 @@ export function createChatController({
       && lastMessage.role === 'user'
       && now - lastMessage.createdAt < INPUT_TRANSCRIPT_MERGE_MS;
 
+    let latestUserMessage = null;
     if (shouldExtendLastUserMessage) {
       lastMessage.text = `${lastMessage.text}${text}`;
       lastMessage.createdAt = now;
+      latestUserMessage = lastMessage;
     } else if (trimmedTranscript) {
-      chatState.messages.push(createUserMessage(text));
+      latestUserMessage = createUserMessage(text);
+      chatState.messages.push(latestUserMessage);
     }
 
     chatState.isOpen = true;
@@ -673,6 +883,10 @@ export function createChatController({
       wakeWordCooldownUntil = now + 3000;
       chatState.isSending = false;
       showInput();
+    }
+
+    if (latestUserMessage) {
+      scheduleGroundedSearchForMessage(latestUserMessage);
     }
 
     // Do not send extra clientContent here. Runtime context updates can interrupt
@@ -835,6 +1049,116 @@ export function createChatController({
     update();
     scrollToEnd();
     return message;
+  }
+
+  function hasStreamingLiveMessage() {
+    return chatState.messages.some((message) => (
+      message.role === 'ai'
+      && message.source === 'live'
+      && message.status === 'streaming'
+    ));
+  }
+
+  function clearGroundedSearchTimers({ clearPending = false } = {}) {
+    if (groundedSearchDebounceTimer) {
+      clearTimeout(groundedSearchDebounceTimer);
+      groundedSearchDebounceTimer = null;
+    }
+    if (groundedSearchAppendTimer) {
+      clearTimeout(groundedSearchAppendTimer);
+      groundedSearchAppendTimer = null;
+    }
+    if (clearPending) {
+      pendingGroundedSearchMessage = '';
+      groundedSearchSeq += 1;
+    }
+  }
+
+  function flushGroundedSearchMessage() {
+    if (groundedSearchAppendTimer) {
+      clearTimeout(groundedSearchAppendTimer);
+      groundedSearchAppendTimer = null;
+    }
+
+    const pendingMessage = pendingGroundedSearchMessage;
+    if (!pendingMessage) {
+      return;
+    }
+
+    if (hasStreamingLiveMessage()) {
+      groundedSearchAppendTimer = setTimeout(
+        flushGroundedSearchMessage,
+        GROUNDED_SEARCH_APPEND_RETRY_MS,
+      );
+      return;
+    }
+
+    pendingGroundedSearchMessage = '';
+    appendAiMessage(pendingMessage, 'analysis');
+  }
+
+  function enqueueGroundedSearchMessage(text) {
+    if (!text.trim()) {
+      return;
+    }
+
+    pendingGroundedSearchMessage = text;
+    flushGroundedSearchMessage();
+  }
+
+  function scheduleGroundedSearchForMessage(message) {
+    if (groundedSearchDebounceTimer) {
+      clearTimeout(groundedSearchDebounceTimer);
+      groundedSearchDebounceTimer = null;
+    }
+
+    groundedSearchSeq += 1;
+    const seq = groundedSearchSeq;
+    const query = message?.text?.trim() ?? '';
+    if (!message || !shouldUseGroundedSearch(query)) {
+      pendingGroundedSearchMessage = '';
+      return;
+    }
+
+    const requestKey = `${message.id}:${query}`;
+    if (groundedSearchRequestedKeys.has(requestKey)) {
+      return;
+    }
+
+    const languageCode = resolveChatLanguageCode(query) ?? '';
+    groundedSearchDebounceTimer = setTimeout(() => {
+      groundedSearchDebounceTimer = null;
+      if (groundedSearchRequestedKeys.has(requestKey)) {
+        return;
+      }
+
+      groundedSearchRequestedKeys.add(requestKey);
+      void (async () => {
+        try {
+          if (!groundedSearchClient) {
+            if (!ensureApiKey()) {
+              return;
+            }
+            createClients();
+          }
+
+          const result = await groundedSearchClient.searchLatestInfo(query, new Date(), {
+            languageCode,
+          });
+          if (groundedSearchSeq !== seq) {
+            return;
+          }
+
+          enqueueGroundedSearchMessage(result.displayText);
+        } catch (error) {
+          if (groundedSearchSeq !== seq) {
+            return;
+          }
+
+          enqueueGroundedSearchMessage(toGroundedSearchMessage(error, query, languageCode));
+        }
+      })();
+    }, GROUNDED_SEARCH_DEBOUNCE_MS);
   }
 
   async function sendTextTurn(text, options = {}) {
@@ -1359,6 +1683,7 @@ export function createChatController({
   }
 
   function clearConversation() {
+    clearGroundedSearchTimers({ clearPending: true });
     chatState.messages = [];
     chatState.currentAiMessageId = null;
     currentAiMessageId = null;
@@ -1377,6 +1702,160 @@ export function createChatController({
     };
     requestAnimationFrame(scroll);
     setTimeout(scroll, 80);
+  }
+
+  function getDictionaryApiKey() {
+    refreshActiveApiKeys();
+    return activeApiKeys.analysisApiKey || activeApiKeys.chatApiKey;
+  }
+
+  function resetDictionaryState() {
+    chatState.dictionary = createDictionaryState();
+  }
+
+  function closeDictionary() {
+    dictionaryRequestSeq += 1;
+    resetDictionaryState();
+    if (elements.dictionaryFrame.dataset.dictionaryUrl) {
+      elements.dictionaryFrame.src = 'about:blank';
+      delete elements.dictionaryFrame.dataset.dictionaryUrl;
+    }
+    update();
+  }
+
+  async function loadGeminiDictionary(word, requestId, { force = false } = {}) {
+    const cacheKey = word.toLowerCase();
+    const cached = dictionaryGeminiCache.get(cacheKey);
+    if (cached && !force) {
+      if (dictionaryRequestSeq !== requestId || chatState.dictionary.selectedWord !== word) {
+        return;
+      }
+      chatState.dictionary.geminiStatus = cached.success ? 'ready' : 'error';
+      chatState.dictionary.geminiText = cached.text ?? '';
+      chatState.dictionary.geminiError = cached.error ?? '';
+      update();
+      return;
+    }
+
+    chatState.dictionary.geminiStatus = 'loading';
+    chatState.dictionary.geminiText = '';
+    chatState.dictionary.geminiError = '';
+    update();
+
+    const result = await fetchGeminiDictionaryExplanation({
+      word,
+      apiKey: getDictionaryApiKey(),
+      model: DICTIONARY_GEMINI_MODEL,
+      maxOutputTokens: DICTIONARY_GEMINI_MAX_OUTPUT_TOKENS,
+    });
+    dictionaryGeminiCache.set(cacheKey, result);
+
+    if (dictionaryRequestSeq !== requestId || chatState.dictionary.selectedWord !== word) {
+      return;
+    }
+
+    chatState.dictionary.geminiStatus = result.success ? 'ready' : 'error';
+    chatState.dictionary.geminiText = result.text ?? '';
+    chatState.dictionary.geminiError = result.error ?? '';
+    update();
+  }
+
+  function openDictionary(rawWord) {
+    const word = cleanDictionaryWord(rawWord);
+    if (!word) {
+      return;
+    }
+
+    dictionaryRequestSeq += 1;
+    const requestId = dictionaryRequestSeq;
+    chatState.dictionary = {
+      selectedWord: word,
+      daumUrl: getDaumDictionaryUrl(word),
+      isOpen: true,
+      isGeminiVisible: false,
+      geminiStatus: 'idle',
+      geminiText: '',
+      geminiError: '',
+    };
+    update();
+    void loadGeminiDictionary(word, requestId);
+  }
+
+  function retryGeminiDictionary() {
+    const word = chatState.dictionary.selectedWord;
+    if (!word) {
+      return;
+    }
+
+    dictionaryRequestSeq += 1;
+    void loadGeminiDictionary(word, dictionaryRequestSeq, { force: true });
+  }
+
+  function appendDictionaryLineText(textElement, line) {
+    for (const token of tokenizeLineForDictionary(line)) {
+      if (!token.lookupWord) {
+        textElement.append(document.createTextNode(token.displayToken));
+        continue;
+      }
+
+      const wordButton = document.createElement('button');
+      wordButton.type = 'button';
+      wordButton.className = 'chat-dictionary-word';
+      wordButton.dataset.action = 'lookup-word';
+      wordButton.dataset.word = token.lookupWord;
+      wordButton.setAttribute('aria-label', `${token.lookupWord} 사전 보기`);
+      wordButton.textContent = token.displayToken;
+      textElement.append(wordButton);
+    }
+  }
+
+  function renderDictionaryPopup() {
+    const dictionary = chatState.dictionary ?? createDictionaryState();
+    elements.dictionaryPopup.hidden = !dictionary.isOpen;
+
+    if (!dictionary.isOpen || !dictionary.selectedWord) {
+      elements.dictionaryGeminiPanel.hidden = true;
+      elements.dictionaryFrame.hidden = false;
+      elements.dictionaryGeminiButton.hidden = false;
+      elements.dictionaryCloseButton.hidden = false;
+      elements.dictionaryHideGeminiButton.hidden = true;
+      elements.dictionaryGeminiTitle.textContent = '';
+      elements.dictionaryGeminiMessage.textContent = '';
+      elements.dictionaryRetryButton.hidden = true;
+      elements.dictionaryGeminiSpinner.hidden = true;
+      elements.dictionaryGeminiIcon.hidden = false;
+      return;
+    }
+
+    if (elements.dictionaryFrame.dataset.dictionaryUrl !== dictionary.daumUrl) {
+      elements.dictionaryFrame.src = dictionary.daumUrl;
+      elements.dictionaryFrame.dataset.dictionaryUrl = dictionary.daumUrl;
+    }
+
+    elements.dictionaryFrame.hidden = dictionary.isGeminiVisible;
+    elements.dictionaryGeminiPanel.hidden = !dictionary.isGeminiVisible;
+    elements.dictionaryGeminiButton.hidden = dictionary.isGeminiVisible;
+    elements.dictionaryCloseButton.hidden = dictionary.isGeminiVisible;
+    elements.dictionaryHideGeminiButton.hidden = !dictionary.isGeminiVisible;
+    elements.dictionaryGeminiSpinner.hidden = dictionary.geminiStatus !== 'loading';
+    elements.dictionaryGeminiIcon.hidden = dictionary.geminiStatus === 'loading';
+    elements.dictionaryGeminiButton.classList.toggle('ready', dictionary.geminiStatus === 'ready');
+    elements.dictionaryGeminiButton.classList.toggle('error', dictionary.geminiStatus === 'error');
+    elements.dictionaryGeminiTitle.textContent = dictionary.selectedWord;
+
+    if (dictionary.geminiStatus === 'loading') {
+      elements.dictionaryGeminiMessage.textContent = '설명을 불러오는 중입니다...';
+      elements.dictionaryRetryButton.hidden = true;
+    } else if (dictionary.geminiStatus === 'ready') {
+      elements.dictionaryGeminiMessage.textContent = dictionary.geminiText;
+      elements.dictionaryRetryButton.hidden = true;
+    } else if (dictionary.geminiStatus === 'error') {
+      elements.dictionaryGeminiMessage.textContent = dictionary.geminiError || 'Gemini 사전 설명을 불러오지 못했습니다.';
+      elements.dictionaryRetryButton.hidden = false;
+    } else {
+      elements.dictionaryGeminiMessage.textContent = 'Gemini 사전 설명을 준비하고 있습니다.';
+      elements.dictionaryRetryButton.hidden = true;
+    }
   }
 
   function renderMessages() {
@@ -1433,7 +1912,7 @@ export function createChatController({
         text.className = containsKorean(line)
           ? 'chat-message-text chat-message-text-korean'
           : 'chat-message-text';
-        text.textContent = line;
+        appendDictionaryLineText(text, line);
         row.append(bullet, text);
         group.append(row);
 
@@ -1702,6 +2181,7 @@ export function createChatController({
     renderAppearanceEditor();
     renderInput();
     renderSnapshots();
+    renderDictionaryPopup();
 
     layer.querySelector('[data-action="toggle-transparent"]')?.classList.toggle('active', chatState.isTransparent);
     layer.querySelector('[data-action="toggle-input"]')?.classList.toggle('active', chatState.input.isVisible);
@@ -1790,6 +2270,23 @@ export function createChatController({
         void speakText(message, sentence, SENTENCE_TTS_REPEAT_COUNT);
         break;
       }
+      case 'lookup-word':
+        openDictionary(button.dataset.word ?? '');
+        break;
+      case 'dictionary-show-gemini':
+        chatState.dictionary.isGeminiVisible = true;
+        update();
+        break;
+      case 'dictionary-hide-gemini':
+        chatState.dictionary.isGeminiVisible = false;
+        update();
+        break;
+      case 'dictionary-close':
+        closeDictionary();
+        break;
+      case 'dictionary-retry-gemini':
+        retryGeminiDictionary();
+        break;
       case 'save-snapshot':
         saveSnapshot();
         break;
@@ -2029,6 +2526,7 @@ export function createChatController({
       }
     },
     stop() {
+      clearGroundedSearchTimers({ clearPending: true });
       liveClient?.disconnect();
       stopLiveMicrophone({ keepPreference: true });
       stopSpeechRecognition();
@@ -2050,6 +2548,12 @@ export function createChatController({
         chatState.showAppearanceEditor = false;
         chatState.composer.isVisible = false;
         chatState.input.isVisible = false;
+        dictionaryRequestSeq += 1;
+        resetDictionaryState();
+        if (elements.dictionaryFrame.dataset.dictionaryUrl) {
+          elements.dictionaryFrame.src = 'about:blank';
+          delete elements.dictionaryFrame.dataset.dictionaryUrl;
+        }
         deactivateInputMic({ resumeMain: false });
       }
       update();

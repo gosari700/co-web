@@ -242,6 +242,61 @@ function getYahooQuoteMeta(data) {
   return firstResult.meta;
 }
 
+function buildSamsungQuoteSnapshot({
+  price,
+  previousClose,
+  marketTimeSeconds,
+  timezone,
+  sourceTitle,
+  sourceUri,
+}) {
+  if (price === null) {
+    return null;
+  }
+
+  return {
+    price,
+    previousClose,
+    marketTimeSeconds,
+    timezone: timezone || 'Asia/Seoul',
+    source: {
+      title: sourceTitle || 'finance.yahoo.com',
+      uri: sourceUri || 'https://finance.yahoo.com/quote/005930.KS',
+    },
+  };
+}
+
+function buildSamsungQuoteSnapshotFromApi(data) {
+  if (!isRecord(data)) {
+    return null;
+  }
+
+  return buildSamsungQuoteSnapshot({
+    price: asNumber(data.price),
+    previousClose: asNumber(data.previousClose),
+    marketTimeSeconds: asNumber(data.marketTimeEpochSeconds),
+    timezone: asString(data.timezone),
+    sourceTitle: asString(data.sourceTitle),
+    sourceUri: asString(data.sourceUri),
+  });
+}
+
+function buildSamsungQuoteSnapshotFromYahooMeta(meta) {
+  const price = asNumber(meta?.regularMarketPrice);
+  if (!meta || price === null) {
+    return null;
+  }
+
+  return buildSamsungQuoteSnapshot({
+    price,
+    previousClose: asNumber(meta.previousClose) ?? asNumber(meta.chartPreviousClose),
+    marketTimeSeconds: asNumber(meta.regularMarketTime),
+    timezone: asString(meta.exchangeTimezoneName) || 'Asia/Seoul',
+    sourceTitle: 'finance.yahoo.com',
+    sourceUri: 'https://finance.yahoo.com/quote/005930.KS',
+  });
+}
+
 async function readErrorSnippet(response) {
   try {
     return (await response.text()).slice(0, 160);
@@ -250,42 +305,71 @@ async function readErrorSnippet(response) {
   }
 }
 
-async function searchSamsungElectronicsQuote(query, languageCode = '') {
+async function fetchSameOriginSamsungElectronicsQuote() {
+  const response = await fetch('/api/samsung-electronics-quote', {
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(`Samsung quote API error ${response.status}: ${await readErrorSnippet(response)}`);
+  }
+
+  const snapshot = buildSamsungQuoteSnapshotFromApi(await response.json());
+  if (!snapshot) {
+    throw new Error('Samsung quote API response was missing price.');
+  }
+
+  return snapshot;
+}
+
+async function fetchYahooSamsungElectronicsQuote() {
   const response = await fetch(`${YAHOO_CHART_BASE}/005930.KS?range=1d&interval=1m`);
   if (!response.ok) {
     throw new Error(`Yahoo quote error ${response.status}: ${await readErrorSnippet(response)}`);
   }
 
-  const meta = getYahooQuoteMeta(await response.json());
-  const price = asNumber(meta?.regularMarketPrice);
-  if (!meta || price === null) {
+  const snapshot = buildSamsungQuoteSnapshotFromYahooMeta(getYahooQuoteMeta(await response.json()));
+  if (!snapshot) {
     throw new Error('Yahoo quote response was missing Samsung Electronics price.');
   }
 
-  const previousClose = asNumber(meta.previousClose) ?? asNumber(meta.chartPreviousClose);
+  return snapshot;
+}
+
+async function fetchSamsungElectronicsQuoteSnapshot() {
+  try {
+    return await fetchSameOriginSamsungElectronicsQuote();
+  } catch (sameOriginError) {
+    try {
+      return await fetchYahooSamsungElectronicsQuote();
+    } catch {
+      throw sameOriginError;
+    }
+  }
+}
+
+async function searchSamsungElectronicsQuote(query, languageCode = '') {
+  const quote = await fetchSamsungElectronicsQuoteSnapshot();
+  const { price, previousClose, source } = quote;
   const marketTime = formatMarketTime(
-    asNumber(meta.regularMarketTime),
-    asString(meta.exchangeTimezoneName) || 'Asia/Seoul',
+    quote.marketTimeSeconds,
+    quote.timezone,
     query,
     languageCode,
   );
-  const source = {
-    title: 'finance.yahoo.com',
-    uri: 'https://finance.yahoo.com/quote/005930.KS',
-  };
+  const hasPreviousClose = previousClose !== null && previousClose !== 0;
 
   const answerLines = isKoreanRequest(query, languageCode)
     ? [
       `삼성전자 보통주(005930.KS) 현재가는 ${formatKrw(price)}입니다.`,
       marketTime ? `기준: ${marketTime} KST` : '',
-      previousClose !== null
+      hasPreviousClose
         ? `전일 종가 ${formatKrw(previousClose)} 대비 ${formatSignedKrw(price - previousClose)}(${formatSignedPercent(((price - previousClose) / previousClose) * 100)})입니다.`
         : '',
     ]
     : [
       `Samsung Electronics common stock (005930.KS) is currently ${formatKrw(price)}.`,
       marketTime ? `As of ${marketTime} KST` : '',
-      previousClose !== null
+      hasPreviousClose
         ? `Change from previous close ${formatKrw(previousClose)}: ${formatSignedKrw(price - previousClose)} (${formatSignedPercent(((price - previousClose) / previousClose) * 100)}).`
         : '',
     ];
