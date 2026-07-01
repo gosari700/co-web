@@ -108,6 +108,7 @@ async function fetchNaverQuote() {
   if (price === null) {
     throw new Error('Naver quote response was missing Samsung Electronics price.');
   }
+  const marketStatus = asString(item.marketStatus);
 
   return {
     price,
@@ -117,6 +118,8 @@ async function fetchNaverQuote() {
     sourceTitle: 'finance.naver.com',
     sourceUri: 'https://finance.naver.com/item/main.naver?code=005930',
     symbol: '005930.KS',
+    marketStatus,
+    priceKind: marketStatus === 'CLOSE' ? 'regular_close' : 'current',
   };
 }
 
@@ -141,11 +144,11 @@ export default async function handler(request, response) {
   }
 
   try {
-    response.status(200).json(await fetchYahooQuote());
-  } catch (yahooError) {
+    response.status(200).json(await fetchNaverQuote());
+  } catch (naverError) {
     try {
-      response.status(200).json(await fetchNaverQuote());
-    } catch (naverError) {
+      response.status(200).json(await fetchYahooQuote());
+    } catch (yahooError) {
       response.status(502).json({
         error: 'Samsung Electronics quote lookup failed.',
         yahooError: yahooError instanceof Error ? yahooError.message : '',

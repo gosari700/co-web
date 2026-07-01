@@ -50,8 +50,9 @@ const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
 const INPUT_TRANSCRIPT_MERGE_MS = 10000;
-const GROUNDED_SEARCH_DEBOUNCE_MS = 1400;
+const GROUNDED_SEARCH_DEBOUNCE_MS = 450;
 const GROUNDED_SEARCH_APPEND_RETRY_MS = 350;
+const GROUNDED_SEARCH_LIVE_SUPPRESS_MS = 20000;
 const WAKE_WORD_PATTERN = /\bspeaking\b|\bspeak\s+in\b|스피킹|쓰피킹|스삐킹|쓰삐킹/i;
 const TYPED_WAKE_WORD_PATTERN = /^speaking$/i;
 const APPEARANCE_PALETTE_WIDTH = 180;
@@ -369,6 +370,7 @@ export function createChatController({
   let groundedSearchAppendTimer = null;
   let groundedSearchSeq = 0;
   let pendingGroundedSearchMessage = '';
+  let groundedSearchLiveSuppressedUntil = 0;
   let dictionaryRequestSeq = 0;
   const groundedSearchRequestedKeys = new Set();
   const dictionaryGeminiCache = new Map();
@@ -612,7 +614,7 @@ export function createChatController({
       return;
     }
 
-    if (isTextInputActive) {
+    if (isTextInputActive || isGroundedSearchLiveSuppressed()) {
       liveAudioPlayer.stop();
       return;
     }
@@ -826,7 +828,7 @@ export function createChatController({
       return;
     }
 
-    if (isTextInputActive) {
+    if (isTextInputActive || isGroundedSearchLiveSuppressed()) {
       return;
     }
 
@@ -926,6 +928,14 @@ export function createChatController({
     liveAudioPlayer.stop();
     didQueueLiveAudioInTurn = false;
     isHoldingLiveMicrophoneInputForAi = false;
+    if (isGroundedSearchLiveSuppressed()) {
+      currentAiText = '';
+      currentAiMessageId = null;
+      chatState.currentAiMessageId = null;
+      chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
+      update();
+      return;
+    }
     if (isTextInputActive) {
       currentAiText = '';
       currentAiMessageId = null;
@@ -997,6 +1007,16 @@ export function createChatController({
   }
 
   function handleAiTurnComplete() {
+    if (isGroundedSearchLiveSuppressed()) {
+      currentAiText = '';
+      currentAiMessageId = null;
+      chatState.currentAiMessageId = null;
+      didQueueLiveAudioInTurn = false;
+      chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
+      update();
+      return;
+    }
+
     if (isTextInputActive) {
       currentAiText = '';
       currentAiMessageId = null;
@@ -1059,6 +1079,57 @@ export function createChatController({
     ));
   }
 
+  function isGroundedSearchLiveSuppressed() {
+    return Date.now() < groundedSearchLiveSuppressedUntil;
+  }
+
+  function suppressLiveForGroundedSearch() {
+    groundedSearchLiveSuppressedUntil = Math.max(
+      groundedSearchLiveSuppressedUntil,
+      Date.now() + GROUNDED_SEARCH_LIVE_SUPPRESS_MS,
+    );
+    liveAudioPlayer.stop();
+    didQueueLiveAudioInTurn = false;
+    isInitialGreetingInProgress = false;
+    isHoldingLiveMicrophoneInputForAi = false;
+    currentAiText = '';
+    currentAiMessageId = null;
+    chatState.currentAiMessageId = null;
+    chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
+  }
+
+  function clearGroundedSearchSuppression() {
+    groundedSearchLiveSuppressedUntil = 0;
+  }
+
+  function replaceLatestLiveAiMessage(text) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const lastMessage = chatState.messages[chatState.messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'ai' || lastMessage.source !== 'live') {
+      const message = createAiMessage(trimmed, 'ready', 'live');
+      currentAiMessageId = null;
+      currentAiText = '';
+      chatState.currentAiMessageId = null;
+      chatState.messages.push(message);
+      update();
+      scrollToEnd();
+      return;
+    }
+
+    lastMessage.text = trimmed;
+    lastMessage.status = 'ready';
+    lastMessage.createdAt = Date.now();
+    currentAiMessageId = null;
+    currentAiText = '';
+    chatState.currentAiMessageId = null;
+    update();
+    scrollToEnd();
+  }
+
   function clearGroundedSearchTimers({ clearPending = false } = {}) {
     if (groundedSearchDebounceTimer) {
       clearTimeout(groundedSearchDebounceTimer);
@@ -1071,6 +1142,7 @@ export function createChatController({
     if (clearPending) {
       pendingGroundedSearchMessage = '';
       groundedSearchSeq += 1;
+      clearGroundedSearchSuppression();
     }
   }
 
@@ -1117,6 +1189,7 @@ export function createChatController({
     const query = message?.text?.trim() ?? '';
     if (!message || !shouldUseGroundedSearch(query)) {
       pendingGroundedSearchMessage = '';
+      clearGroundedSearchSuppression();
       return;
     }
 
@@ -1126,6 +1199,8 @@ export function createChatController({
     }
 
     const languageCode = resolveChatLanguageCode(query) ?? '';
+    suppressLiveForGroundedSearch();
+    replaceLatestLiveAiMessage(buildGroundedSearchHandoff(query, languageCode));
     groundedSearchDebounceTimer = setTimeout(() => {
       groundedSearchDebounceTimer = null;
       if (groundedSearchRequestedKeys.has(requestKey)) {
@@ -1180,13 +1255,16 @@ export function createChatController({
     scrollToEnd();
 
     if (shouldUseGroundedSearch(trimmed)) {
+      suppressLiveForGroundedSearch();
       appendAiMessage(buildGroundedSearchHandoff(trimmed, responseLanguageCode), 'live');
       await runGroundedSearch(trimmed, { languageCode: responseLanguageCode });
+      clearGroundedSearchSuppression();
       chatState.isSending = false;
       update();
       return true;
     }
 
+    clearGroundedSearchSuppression();
     try {
       const connected = await ensureLiveConnected();
       if (!connected || !liveClient) {

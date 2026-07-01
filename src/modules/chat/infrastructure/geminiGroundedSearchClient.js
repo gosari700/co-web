@@ -249,6 +249,7 @@ function buildSamsungQuoteSnapshot({
   timezone,
   sourceTitle,
   sourceUri,
+  priceKind,
 }) {
   if (price === null) {
     return null;
@@ -263,6 +264,7 @@ function buildSamsungQuoteSnapshot({
       title: sourceTitle || 'finance.yahoo.com',
       uri: sourceUri || 'https://finance.yahoo.com/quote/005930.KS',
     },
+    priceKind: priceKind || 'current',
   };
 }
 
@@ -278,6 +280,7 @@ function buildSamsungQuoteSnapshotFromApi(data) {
     timezone: asString(data.timezone),
     sourceTitle: asString(data.sourceTitle),
     sourceUri: asString(data.sourceUri),
+    priceKind: asString(data.priceKind),
   });
 }
 
@@ -294,6 +297,7 @@ function buildSamsungQuoteSnapshotFromYahooMeta(meta) {
     timezone: asString(meta.exchangeTimezoneName) || 'Asia/Seoul',
     sourceTitle: 'finance.yahoo.com',
     sourceUri: 'https://finance.yahoo.com/quote/005930.KS',
+    priceKind: 'current',
   });
 }
 
@@ -360,14 +364,18 @@ async function searchSamsungElectronicsQuote(query, languageCode = '') {
 
   const answerLines = isKoreanRequest(query, languageCode)
     ? [
-      `삼성전자 보통주(005930.KS) 현재가는 ${formatKrw(price)}입니다.`,
+      quote.priceKind === 'regular_close'
+        ? `삼성전자 보통주(005930.KS) 오늘 정규장 종가는 ${formatKrw(price)}입니다.`
+        : `삼성전자 보통주(005930.KS) 현재가는 ${formatKrw(price)}입니다.`,
       marketTime ? `기준: ${marketTime} KST` : '',
       hasPreviousClose
         ? `전일 종가 ${formatKrw(previousClose)} 대비 ${formatSignedKrw(price - previousClose)}(${formatSignedPercent(((price - previousClose) / previousClose) * 100)})입니다.`
         : '',
     ]
     : [
-      `Samsung Electronics common stock (005930.KS) is currently ${formatKrw(price)}.`,
+      quote.priceKind === 'regular_close'
+        ? `Samsung Electronics common stock (005930.KS) closed today at ${formatKrw(price)}.`
+        : `Samsung Electronics common stock (005930.KS) is currently ${formatKrw(price)}.`,
       marketTime ? `As of ${marketTime} KST` : '',
       hasPreviousClose
         ? `Change from previous close ${formatKrw(previousClose)}: ${formatSignedKrw(price - previousClose)} (${formatSignedPercent(((price - previousClose) / previousClose) * 100)}).`
