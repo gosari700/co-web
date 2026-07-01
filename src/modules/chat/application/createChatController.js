@@ -1193,7 +1193,7 @@ export function createChatController({
     chatState.input.isSpeaking = true;
     update();
     try {
-      let didSpeak = await repeatSpeech(
+      await repeatSpeech(
         speechSynthesizer,
         translated,
         INPUT_TTS_REPEAT_COUNT,
@@ -1202,23 +1202,6 @@ export function createChatController({
           language: getTranslationLanguageSpeechLocale(chatState.input.targetLanguageCode),
         },
       );
-
-      if (!didSpeak && ttsClient) {
-        try {
-          const audioSource = await ttsClient.generateAudio(translated);
-          if (audioSource) {
-            for (let index = 0; index < INPUT_TTS_REPEAT_COUNT; index += 1) {
-              await audioPlayer.play(audioSource);
-              if (index < INPUT_TTS_REPEAT_COUNT - 1) {
-                await wait(INPUT_TTS_REPEAT_DELAY_MS);
-              }
-            }
-            didSpeak = true;
-          }
-        } catch {
-          didSpeak = false;
-        }
-      }
     } finally {
       chatState.input.isSpeaking = false;
       deactivateInputMic({ resumeMain: false });

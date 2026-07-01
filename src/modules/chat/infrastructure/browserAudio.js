@@ -4,6 +4,33 @@ function wait(ms) {
   });
 }
 
+function getNativeSpeechBridge() {
+  const bridge = window.CoWebNativeSpeech;
+  if (!bridge || typeof bridge.speak !== 'function') {
+    return null;
+  }
+  return bridge;
+}
+
+function getNativeSpeechResolvers() {
+  if (!window.__coWebNativeSpeechResolvers) {
+    window.__coWebNativeSpeechResolvers = new Map();
+  }
+
+  if (typeof window.__coWebNativeSpeechDone !== 'function') {
+    window.__coWebNativeSpeechDone = (utteranceId, didSpeak) => {
+      const resolver = window.__coWebNativeSpeechResolvers?.get(utteranceId);
+      resolver?.(Boolean(didSpeak));
+    };
+  }
+
+  return window.__coWebNativeSpeechResolvers;
+}
+
+function getSpeechTimeoutMs(text) {
+  return Math.max(3000, Math.min(90000, 3000 + text.length * 120));
+}
+
 function clampSample(value) {
   return Math.max(-1, Math.min(1, value));
 }
@@ -479,7 +506,50 @@ export class BrowserLiveMicrophone {
 
 export class BrowserSpeechSynthesizer {
   stop() {
+    try {
+      window.CoWebNativeSpeech?.stop?.();
+    } catch {
+      // Native bridge may be unavailable outside the Android wrapper.
+    }
     window.speechSynthesis?.cancel();
+  }
+
+  speakWithNativeBridge(text, options = {}) {
+    const bridge = getNativeSpeechBridge();
+    if (!bridge) {
+      return Promise.resolve(null);
+    }
+
+    const utteranceId = `co-web-tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const resolvers = getNativeSpeechResolvers();
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (didSpeak) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutId);
+        resolvers.delete(utteranceId);
+        resolve(Boolean(didSpeak));
+      };
+      const timeoutId = setTimeout(() => {
+        finish(false);
+      }, getSpeechTimeoutMs(text));
+
+      resolvers.set(utteranceId, finish);
+      try {
+        bridge.speak(
+          text,
+          options.language ?? '',
+          Number(options.pitch ?? 1.08),
+          Number(options.rate ?? 0.92),
+          utteranceId,
+        );
+      } catch {
+        finish(false);
+      }
+    });
   }
 
   loadVoices(timeoutMs = 300) {
@@ -523,7 +593,16 @@ export class BrowserSpeechSynthesizer {
 
   async speak(text, options = {}) {
     const trimmed = text.trim();
-    if (!trimmed || !window.speechSynthesis) {
+    if (!trimmed) {
+      return false;
+    }
+
+    const nativeResult = await this.speakWithNativeBridge(trimmed, options);
+    if (nativeResult !== null) {
+      return nativeResult;
+    }
+
+    if (!window.speechSynthesis) {
       return false;
     }
 
