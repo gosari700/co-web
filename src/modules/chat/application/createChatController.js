@@ -1193,8 +1193,17 @@ export function createChatController({
     chatState.input.isSpeaking = true;
     update();
     try {
-      let didPlayGeminiTts = false;
-      if (ttsClient) {
+      let didSpeak = await repeatSpeech(
+        speechSynthesizer,
+        translated,
+        INPUT_TTS_REPEAT_COUNT,
+        INPUT_TTS_REPEAT_DELAY_MS,
+        {
+          language: getTranslationLanguageSpeechLocale(chatState.input.targetLanguageCode),
+        },
+      );
+
+      if (!didSpeak && ttsClient) {
         try {
           const audioSource = await ttsClient.generateAudio(translated);
           if (audioSource) {
@@ -1204,23 +1213,11 @@ export function createChatController({
                 await wait(INPUT_TTS_REPEAT_DELAY_MS);
               }
             }
-            didPlayGeminiTts = true;
+            didSpeak = true;
           }
         } catch {
-          didPlayGeminiTts = false;
+          didSpeak = false;
         }
-      }
-
-      if (!didPlayGeminiTts) {
-        await repeatSpeech(
-          speechSynthesizer,
-          translated,
-          INPUT_TTS_REPEAT_COUNT,
-          INPUT_TTS_REPEAT_DELAY_MS,
-          {
-            language: getTranslationLanguageSpeechLocale(chatState.input.targetLanguageCode),
-          },
-        );
       }
     } finally {
       chatState.input.isSpeaking = false;

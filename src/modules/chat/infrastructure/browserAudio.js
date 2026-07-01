@@ -482,34 +482,86 @@ export class BrowserSpeechSynthesizer {
     window.speechSynthesis?.cancel();
   }
 
-  speak(text, options = {}) {
-    const trimmed = text.trim();
-    if (!trimmed || !window.speechSynthesis) {
-      return Promise.resolve();
+  loadVoices(timeoutMs = 300) {
+    const synthesis = window.speechSynthesis;
+    if (!synthesis) {
+      return Promise.resolve([]);
     }
 
+    const voices = synthesis.getVoices();
+    if (voices.length > 0) {
+      return Promise.resolve(voices);
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        synthesis.removeEventListener?.('voiceschanged', finish);
+        resolve(synthesis.getVoices());
+      };
+
+      synthesis.addEventListener?.('voiceschanged', finish, { once: true });
+      setTimeout(finish, timeoutMs);
+    });
+  }
+
+  findVoice(voices, language) {
+    if (!language) {
+      return null;
+    }
+
+    const normalized = language.toLowerCase();
+    const base = normalized.split('-')[0];
+    return voices.find((voice) => voice.lang?.toLowerCase() === normalized)
+      ?? voices.find((voice) => voice.lang?.toLowerCase().startsWith(`${base}-`))
+      ?? null;
+  }
+
+  async speak(text, options = {}) {
+    const trimmed = text.trim();
+    if (!trimmed || !window.speechSynthesis) {
+      return false;
+    }
+
+    const voices = await this.loadVoices();
     return new Promise((resolve) => {
       const utterance = new SpeechSynthesisUtterance(trimmed);
       if (options.language) {
         utterance.lang = options.language;
       }
+      const voice = this.findVoice(voices, options.language);
+      if (voice) {
+        utterance.voice = voice;
+      }
       utterance.pitch = options.pitch ?? 1.08;
       utterance.rate = options.rate ?? 0.92;
-      utterance.onend = resolve;
-      utterance.onerror = resolve;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utterance);
+      utterance.onend = () => resolve(true);
+      utterance.onerror = () => resolve(false);
+      try {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        resolve(false);
+      }
     });
   }
 }
 
 export async function repeatSpeech(synthesizer, text, repeatCount, delayMs, options = {}) {
   for (let index = 0; index < repeatCount; index += 1) {
-    await synthesizer.speak(text, options);
+    const didSpeak = await synthesizer.speak(text, options);
+    if (!didSpeak) {
+      return false;
+    }
     if (index < repeatCount - 1 && delayMs > 0) {
       await wait(delayMs);
     }
   }
+  return true;
 }
 
 export function createSpeechRecognition({ language, onText, onEnd, onError }) {
