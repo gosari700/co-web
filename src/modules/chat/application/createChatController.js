@@ -478,7 +478,7 @@ export function createChatController({
   }
 
   async function ensureLiveMicrophone({ explicit = false } = {}) {
-    if (chatState.isRecordingMicEnabled) {
+    if (chatState.isRecordingMicEnabled || isTextInputActive) {
       return false;
     }
 
@@ -522,7 +522,7 @@ export function createChatController({
   }
 
   function startOrDeferLiveMicrophone({ explicit = false } = {}) {
-    if (chatState.isRecordingMicEnabled || !wantsLiveMicrophone || !liveClient?.isConnected()) {
+    if (chatState.isRecordingMicEnabled || isTextInputActive || !wantsLiveMicrophone || !liveClient?.isConnected()) {
       return false;
     }
 
@@ -549,6 +549,7 @@ export function createChatController({
 
   function pauseMainLiveMicrophoneForInput() {
     isHoldingLiveMicrophoneInputForAi = false;
+    shouldStartMicrophoneAfterPlayback = false;
     liveMicrophone.stop();
     chatState.isLiveMicActive = false;
     chatState.isLiveMicStarting = false;
@@ -569,7 +570,7 @@ export function createChatController({
   }
 
   function resumeMainLiveMicrophoneIfWanted() {
-    if (chatState.isRecordingMicEnabled || !wantsLiveMicrophone || !liveClient?.isConnected()) {
+    if (chatState.isRecordingMicEnabled || isTextInputActive || !wantsLiveMicrophone || !liveClient?.isConnected()) {
       return;
     }
     startOrDeferLiveMicrophone({ explicit: true });
@@ -615,6 +616,10 @@ export function createChatController({
       return;
     }
 
+    if (isTextInputActive) {
+      return;
+    }
+
     if (isHoldingLiveMicrophoneInputForAi || isAiOutputInProgress()) {
       return;
     }
@@ -628,11 +633,13 @@ export function createChatController({
     }
     const trimmedTranscript = text.trim();
 
-    if (isTextInputActive && chatState.input.isVisible && chatState.input.isInputMicActive) {
-      chatState.input.value = `${chatState.input.value}${text}`;
-      clearInputTranslation();
-      scheduleAutoTranslation();
-      update();
+    if (isTextInputActive) {
+      if (chatState.input.isVisible && chatState.input.isInputMicActive && !chatState.input.isSpeaking) {
+        chatState.input.value = `${chatState.input.value}${text}`;
+        clearInputTranslation();
+        scheduleAutoTranslation();
+        update();
+      }
       return;
     }
 
