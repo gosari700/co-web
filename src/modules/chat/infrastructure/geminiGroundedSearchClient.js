@@ -3,11 +3,13 @@ import {
   resolveChatLanguageCode,
 } from '../domain/chatLanguage.js';
 
+const GEMINI_INTERACTIONS_BASE =
+  'https://generativelanguage.googleapis.com/v1beta/interactions';
 const GEMINI_REST_BASE =
   'https://generativelanguage.googleapis.com/v1beta/models';
 const YAHOO_CHART_BASE =
   'https://query1.finance.yahoo.com/v8/finance/chart';
-const MAX_SOURCE_COUNT = 3;
+const MAX_SOURCE_COUNT = 5;
 const HANGUL_PATTERN = /[가-힣]/;
 const SAMSUNG_ELECTRONICS_STOCK_PATTERN =
   /삼성\s*전자|samsung\s+electronics/i;
@@ -102,15 +104,13 @@ function buildGroundedPrompt(query, date, languageCode = '') {
 
   return [
     `TODAY: ${buildTodayString(date)}.`,
-    'Use Google Search grounding to answer with the freshest available information.',
-    'Use strong expert judgment across politics, economics, society, culture, science, medicine, space, biology, technology, law, and other domains when it helps interpret the search results.',
-    'Ground current facts, numbers, prices, schedules, names, and claims in the search results; do not replace fresh evidence with memory.',
+    'Answer using Gemini Google Search grounding, like a current web search assistant.',
+    'For current/latest/recent facts, people, offices, politics, economics, science, medicine, space, biotechnology, products, laws, schedules, releases, news, papers, and all other changing knowledge, search the web first and ground the answer in the retrieved current sources.',
+    'Do not answer volatile or current facts from memory. If search results are weak or conflicting, say what is verified and what is uncertain.',
+    'Do not switch to academic paper results unless the user specifically asks for papers, studies, clinical trials, journals, or scholarly research.',
+    'Start with the direct answer. Then add only the key context, dates, and source labels.',
     languageRule,
-    'For Korean questions, every explanation sentence must be Korean. For English questions, every explanation sentence must be English. For Japanese, Chinese, Spanish, French, German, or any other registered language, every explanation sentence must be in that language. Do not mix languages except for quoted words, proper nouns, ticker symbols, URLs, or source names.',
-    'Start with the direct answer, then give only the key context in short, easy-to-scan lines.',
-    'For prices, stocks, weather, news, sports, and public facts, include the date or time when available and keep numbers exact.',
-    'If sources disagree or the information may have changed, say that clearly.',
-    'For medical, legal, financial, or safety topics, keep the answer educational and do not replace a qualified professional.',
+    'Never show irrelevant results from another domain. If the search result does not answer the user question, do not present it as an answer.',
     '',
     `User question: ${query}`,
   ].join('\n');
@@ -128,14 +128,33 @@ function addSource(sources, uri, title) {
   });
 }
 
-function collectSources(value, sources) {
+function getAnnotationSource(annotation) {
+  const url = asString(annotation.url) || asString(annotation.uri);
+  if (!url) {
+    return null;
+  }
+
+  return {
+    title: asString(annotation.title) || url,
+    uri: url,
+  };
+}
+
+function collectInteractionSources(value, sources) {
   if (Array.isArray(value)) {
-    value.forEach((item) => collectSources(item, sources));
+    value.forEach((item) => collectInteractionSources(item, sources));
     return;
   }
 
   if (!isRecord(value)) {
     return;
+  }
+
+  if (asString(value.type) === 'url_citation') {
+    const source = getAnnotationSource(value);
+    if (source) {
+      addSource(sources, source.uri, source.title);
+    }
   }
 
   if (isRecord(value.web)) {
@@ -145,10 +164,42 @@ function collectSources(value, sources) {
     }
   }
 
-  Object.values(value).forEach((item) => collectSources(item, sources));
+  Object.values(value).forEach((item) => collectInteractionSources(item, sources));
 }
 
-function getResponseText(data) {
+function getInteractionText(data) {
+  if (!isRecord(data)) {
+    return '';
+  }
+
+  const directText = asString(data.output_text)
+    || asString(data.outputText)
+    || asString(data.text);
+  if (directText.trim()) {
+    return directText.trim();
+  }
+
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  const modelTexts = steps
+    .filter((step) => isRecord(step) && asString(step.type) === 'model_output')
+    .flatMap((step) => {
+      if (!isRecord(step) || !Array.isArray(step.content)) {
+        return [];
+      }
+
+      return step.content
+        .map((content) => isRecord(content) ? asString(content.text) : '')
+        .filter(Boolean);
+    });
+
+  if (modelTexts.length > 0) {
+    return modelTexts.join('\n').trim();
+  }
+
+  return '';
+}
+
+function getGenerateContentText(data) {
   if (!isRecord(data) || !Array.isArray(data.candidates)) {
     return '';
   }
@@ -165,6 +216,22 @@ function getResponseText(data) {
     })
     .join('')
     .trim();
+}
+
+function buildGroundedResponse(data, query, languageCode = '') {
+  const text = getInteractionText(data) || getGenerateContentText(data);
+  if (!text) {
+    throw new Error('Gemini search response was empty.');
+  }
+
+  const sourceMap = new Map();
+  collectInteractionSources(data, sourceMap);
+  const sources = [...sourceMap.values()].slice(0, MAX_SOURCE_COUNT);
+
+  return {
+    displayText: formatDisplayText(text, sources, query, languageCode),
+    sources,
+  };
 }
 
 function compactSourceLabel(source) {
@@ -303,7 +370,7 @@ function buildSamsungQuoteSnapshotFromYahooMeta(meta) {
 
 async function readErrorSnippet(response) {
   try {
-    return (await response.text()).slice(0, 160);
+    return (await response.text()).slice(0, 220);
   } catch {
     return '';
   }
@@ -400,6 +467,38 @@ export class GeminiGroundedSearchClient {
       return searchSamsungElectronicsQuote(trimmed, languageCode);
     }
 
+    return this.searchGeminiLikeWeb(trimmed, date, languageCode);
+  }
+
+  async searchGeminiLikeWeb(trimmed, date, languageCode = '') {
+    const prompt = buildGroundedPrompt(trimmed, date, languageCode);
+    const response = await fetch(GEMINI_INTERACTIONS_BASE, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': this.config.apiKey,
+      },
+      body: JSON.stringify({
+        model: this.config.model,
+        input: prompt,
+        tools: [{ type: 'google_search' }],
+      }),
+    });
+
+    if (response.ok) {
+      return buildGroundedResponse(await response.json(), trimmed, languageCode);
+    }
+
+    const interactionsError = await readErrorSnippet(response);
+    const fallbackResponse = await this.searchGenerateContentGrounded(prompt);
+    if (fallbackResponse) {
+      return buildGroundedResponse(fallbackResponse, trimmed, languageCode);
+    }
+
+    throw new Error(`Gemini interactions search error ${response.status}: ${interactionsError}`);
+  }
+
+  async searchGenerateContentGrounded(prompt) {
     const response = await fetch(
       `${GEMINI_REST_BASE}/${this.config.model}:generateContent?key=${encodeURIComponent(this.config.apiKey)}`,
       {
@@ -410,34 +509,21 @@ export class GeminiGroundedSearchClient {
         body: JSON.stringify({
           contents: [
             {
-              parts: [{ text: buildGroundedPrompt(trimmed, date, languageCode) }],
+              parts: [{ text: prompt }],
             },
           ],
           tools: [{ google_search: {} }],
           generationConfig: {
-            maxOutputTokens: 768,
+            maxOutputTokens: 1024,
           },
         }),
       },
     );
 
     if (!response.ok) {
-      throw new Error(`Gemini search error ${response.status}: ${await readErrorSnippet(response)}`);
+      return null;
     }
 
-    const data = await response.json();
-    const text = getResponseText(data);
-    if (!text) {
-      throw new Error('Gemini search response was empty.');
-    }
-
-    const sourceMap = new Map();
-    collectSources(data, sourceMap);
-    const sources = [...sourceMap.values()].slice(0, MAX_SOURCE_COUNT);
-
-    return {
-      displayText: formatDisplayText(text, sources, trimmed, languageCode),
-      sources,
-    };
+    return response.json();
   }
 }

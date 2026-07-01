@@ -53,7 +53,7 @@ export function buildLiveSystemPrompt(date = new Date()) {
 
 export const CHAT_CONFIG = Object.freeze({
   liveModel: 'gemini-3.1-flash-live-preview',
-  groundedSearchModel: 'gemini-2.5-flash-lite',
+  groundedSearchModel: 'gemini-2.5-flash',
   liveVoiceName: 'Aoede',
   literalTranslationModel: 'gemini-3.5-flash',
   literalTranslationFallbackModel: 'gemini-3.1-flash-lite',
