@@ -30,11 +30,12 @@ function prepareHtml(html) {
   const viewportTag = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
   const styleTag = [
     '<style>',
-    'html,body{margin:0!important;min-width:0!important;width:100%!important;max-width:100%!important;min-height:100%;background:#fff;overflow-x:hidden!important;overscroll-behavior-x:none;}',
-    'body{overflow-y:auto!important;-webkit-overflow-scrolling:touch;}',
+    'html,body{margin:0!important;min-width:0!important;width:100%!important;max-width:100%!important;min-height:100%;background:#fff;overflow-x:hidden!important;overscroll-behavior:contain;touch-action:pan-y;}',
+    'body{overflow-y:auto!important;-webkit-overflow-scrolling:touch;touch-action:pan-y;}',
     '*,*::before,*::after{box-sizing:border-box;max-width:100%;}',
     'img,video,canvas,svg,table{max-width:100%!important;}',
     '#kakaoWrap,#mArticle,#daumWrap,#daumContent,#kakaoContent,.wrap_dic,.wrap_search,.section_search,.list_search,.search_word,.box_word{min-width:0!important;width:100%!important;max-width:100%!important;overflow-x:hidden!important;}',
+    '#kakaoHead,#kakaoHead *,.wrap_gnb,.inner_head,#innerSearchContainer,#searchBar{position:static!important;top:auto!important;transform:none!important;-webkit-transform:none!important;}',
     '</style>',
   ].join('');
 
