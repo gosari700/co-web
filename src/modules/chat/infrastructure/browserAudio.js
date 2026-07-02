@@ -86,7 +86,8 @@ function formatMicrophoneError(error) {
   return '마이크 입력을 시작할 수 없습니다.';
 }
 
-const LIVE_AUDIO_GAIN = 1.0;
+// Browser Web Audio output is quieter than the installed native apps here.
+const LIVE_AUDIO_GAIN = 2.2;
 
 export class BrowserAudioPlayer {
   constructor() {
