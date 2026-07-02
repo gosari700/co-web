@@ -87,7 +87,13 @@ function formatMicrophoneError(error) {
 }
 
 // Browser Web Audio output is quieter than the installed native apps here.
-const LIVE_AUDIO_GAIN = 2.2;
+// Keep a moderate preamp and catch peaks with a compressor to avoid harsh clipping.
+const LIVE_AUDIO_GAIN = 1.85;
+const LIVE_AUDIO_COMPRESSOR_THRESHOLD_DB = -8;
+const LIVE_AUDIO_COMPRESSOR_KNEE_DB = 10;
+const LIVE_AUDIO_COMPRESSOR_RATIO = 8;
+const LIVE_AUDIO_COMPRESSOR_ATTACK_SECONDS = 0.003;
+const LIVE_AUDIO_COMPRESSOR_RELEASE_SECONDS = 0.18;
 
 export class BrowserAudioPlayer {
   constructor() {
@@ -207,6 +213,7 @@ export class BrowserLiveAudioPlayer {
   constructor() {
     this.audioContext = null;
     this.gainNode = null;
+    this.compressorNode = null;
     this.nextStartTime = 0;
     this.activeSources = new Set();
     this.playGeneration = 0;
@@ -227,7 +234,14 @@ export class BrowserLiveAudioPlayer {
       }
       this.gainNode = this.audioContext.createGain();
       this.gainNode.gain.value = LIVE_AUDIO_GAIN;
-      this.gainNode.connect(this.audioContext.destination);
+      this.compressorNode = this.audioContext.createDynamicsCompressor();
+      this.compressorNode.threshold.value = LIVE_AUDIO_COMPRESSOR_THRESHOLD_DB;
+      this.compressorNode.knee.value = LIVE_AUDIO_COMPRESSOR_KNEE_DB;
+      this.compressorNode.ratio.value = LIVE_AUDIO_COMPRESSOR_RATIO;
+      this.compressorNode.attack.value = LIVE_AUDIO_COMPRESSOR_ATTACK_SECONDS;
+      this.compressorNode.release.value = LIVE_AUDIO_COMPRESSOR_RELEASE_SECONDS;
+      this.gainNode.connect(this.compressorNode);
+      this.compressorNode.connect(this.audioContext.destination);
       this.nextStartTime = 0;
       this.activeSources.clear();
       this.isTurnDone = false;
