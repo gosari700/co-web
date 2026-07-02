@@ -46,6 +46,7 @@ import { GoogleTranslator } from '../infrastructure/googleTranslator.js';
 
 const AUTO_TRANSLATION_DEBOUNCE_MS = 80;
 const GEMINI_TTS_START_WAIT_MS = 350;
+const INITIAL_GREETING_DELAY_MS = 500;
 const INPUT_TTS_REPEAT_COUNT = 2;
 const INPUT_TTS_REPEAT_DELAY_MS = 200;
 const SENTENCE_TTS_REPEAT_COUNT = 2;
@@ -352,6 +353,8 @@ export function createChatController({
   let storedApiKey = loadApiKey();
   let activeApiKeys = createActiveApiKeys(storedApiKey);
   let hasSentInitialGreeting = false;
+  let shouldSendInitialGreeting = false;
+  let initialGreetingTimer = null;
   let currentAiText = '';
   let currentAiMessageId = null;
   let autoTranslationTimer = null;
@@ -359,7 +362,6 @@ export function createChatController({
   let speechRecognitionShouldRestart = false;
   let wantsLiveMicrophone = true;
   let hasTriedAutomaticLiveMicrophone = false;
-  let didQueueLiveAudioInTurn = false;
   let isTextInputActive = false;
   let lastInputTranslationKey = '';
   let isInitialGreetingInProgress = false;
@@ -590,6 +592,8 @@ export function createChatController({
     });
     liveClient.onConnectionChange = (connected) => {
       if (!connected) {
+        clearInitialGreetingTimer();
+        shouldSendInitialGreeting = false;
         liveAudioPlayer.stop();
         stopLiveMicrophone({ keepPreference: true });
       }
@@ -605,6 +609,32 @@ export function createChatController({
       chatState.errorMessage = message;
       update();
     };
+  }
+
+  function clearInitialGreetingTimer() {
+    if (initialGreetingTimer) {
+      clearTimeout(initialGreetingTimer);
+      initialGreetingTimer = null;
+    }
+  }
+
+  function scheduleInitialGreeting(client) {
+    clearInitialGreetingTimer();
+    initialGreetingTimer = setTimeout(() => {
+      initialGreetingTimer = null;
+      if (
+        liveClient !== client
+        || chatState.isRecordingMicEnabled
+        || !client?.isConnected()
+        || !shouldSendInitialGreeting
+        || isGroundedSearchLiveSuppressed()
+      ) {
+        return;
+      }
+
+      shouldSendInitialGreeting = false;
+      client.sendInitialGreeting();
+    }, INITIAL_GREETING_DELAY_MS);
   }
 
   function handleAiAudioChunk(audioBase64, mimeType) {
@@ -623,7 +653,6 @@ export function createChatController({
       return;
     }
 
-    didQueueLiveAudioInTurn = true;
     chatState.connectionState = 'speaking';
     update();
   }
@@ -665,11 +694,11 @@ export function createChatController({
 
     if (sendGreeting && !hasSentInitialGreeting) {
       hasSentInitialGreeting = true;
+      shouldSendInitialGreeting = true;
       isInitialGreetingInProgress = true;
-      didQueueLiveAudioInTurn = false;
       currentAiText = '';
       currentAiMessageId = null;
-      liveClient.sendInitialGreeting();
+      scheduleInitialGreeting(liveClient);
     }
 
     if (startMicrophone && wantsLiveMicrophone) {
@@ -924,7 +953,6 @@ export function createChatController({
 
   function handleAiInterrupted() {
     liveAudioPlayer.stop();
-    didQueueLiveAudioInTurn = false;
     isHoldingLiveMicrophoneInputForAi = false;
     if (isGroundedSearchLiveSuppressed()) {
       currentAiText = '';
@@ -947,69 +975,11 @@ export function createChatController({
     handleAiTurnComplete();
   }
 
-  async function speakInitialGreetingFallback(text) {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    pauseMainLiveMicrophoneForInput();
-    try {
-      let didPlayGeminiTts = false;
-      if (ttsClient) {
-        try {
-          const audioSource = await Promise.race([
-            ttsClient.generateAudio(trimmed),
-            new Promise((resolve) => {
-              setTimeout(() => resolve(''), GEMINI_TTS_START_WAIT_MS);
-            }),
-          ]);
-          if (audioSource) {
-            await audioPlayer.play(audioSource);
-            didPlayGeminiTts = true;
-          }
-        } catch {
-          didPlayGeminiTts = false;
-        }
-      }
-
-      if (!didPlayGeminiTts) {
-        await repeatSpeech(
-          speechSynthesizer,
-          trimmed,
-          1,
-          0,
-          {
-            language: 'en-US',
-            pitch: 1.08,
-            rate: 0.92,
-          },
-        );
-      }
-    } catch {
-      // Startup greeting audio is best-effort when the Live API sends text only.
-    } finally {
-      if (isInitialGreetingInProgress) {
-        isInitialGreetingInProgress = false;
-      }
-      isHoldingLiveMicrophoneInputForAi = false;
-      if (shouldStartMicrophoneAfterPlayback) {
-        shouldStartMicrophoneAfterPlayback = false;
-        resumeMainLiveMicrophoneIfWanted();
-      }
-      if (hasActiveChatApiKey()) {
-        chatState.connectionState = 'listening';
-      }
-      update();
-    }
-  }
-
   function handleAiTurnComplete() {
     if (isGroundedSearchLiveSuppressed()) {
       currentAiText = '';
       currentAiMessageId = null;
       chatState.currentAiMessageId = null;
-      didQueueLiveAudioInTurn = false;
       chatState.connectionState = hasActiveChatApiKey() ? 'listening' : 'idle';
       update();
       return;
@@ -1031,22 +1001,13 @@ export function createChatController({
         message.status = 'ready';
       }
     }
-    const completedAiText = currentAiText.trim();
-    const shouldUseInitialGreetingFallback = isInitialGreetingInProgress
-      && completedAiText
-      && !didQueueLiveAudioInTurn;
     currentAiText = '';
     currentAiMessageId = null;
     chatState.currentAiMessageId = null;
     chatState.isSending = false;
-    if (shouldUseInitialGreetingFallback) {
-      void speakInitialGreetingFallback(completedAiText);
-    } else {
-      liveAudioPlayer.markTurnEnd();
-    }
-    didQueueLiveAudioInTurn = false;
+    liveAudioPlayer.markTurnEnd();
     chatState.connectionState = hasActiveChatApiKey()
-      ? (shouldUseInitialGreetingFallback || liveAudioPlayer.isPlaying() ? 'speaking' : 'listening')
+      ? (liveAudioPlayer.isPlaying() ? 'speaking' : 'listening')
       : 'idle';
     update();
   }
@@ -1082,12 +1043,13 @@ export function createChatController({
   }
 
   function suppressLiveForGroundedSearch() {
+    clearInitialGreetingTimer();
+    shouldSendInitialGreeting = false;
     groundedSearchLiveSuppressedUntil = Math.max(
       groundedSearchLiveSuppressedUntil,
       Date.now() + GROUNDED_SEARCH_LIVE_SUPPRESS_MS,
     );
     liveAudioPlayer.stop();
-    didQueueLiveAudioInTurn = false;
     isInitialGreetingInProgress = false;
     isHoldingLiveMicrophoneInputForAi = false;
     currentAiText = '';
@@ -1244,6 +1206,8 @@ export function createChatController({
       ?? '';
 
     chatState.isOpen = true;
+    clearInitialGreetingTimer();
+    shouldSendInitialGreeting = false;
     isHoldingLiveMicrophoneInputForAi = false;
     liveAudioPlayer.stop();
     chatState.messages.push(createUserMessage(trimmed));
@@ -1272,7 +1236,6 @@ export function createChatController({
       }
       currentAiText = '';
       currentAiMessageId = null;
-      didQueueLiveAudioInTurn = false;
       liveClient.sendTextTurn(buildTypedUserTurn(trimmed, responseLanguageCode));
       return true;
     } catch (error) {
@@ -1651,6 +1614,8 @@ export function createChatController({
     chatState.isRecordingMicEnabled = !chatState.isRecordingMicEnabled;
     if (chatState.isRecordingMicEnabled) {
       deactivateInputMic({ resumeMain: false });
+      clearInitialGreetingTimer();
+      shouldSendInitialGreeting = false;
       stopLiveMicrophone({ keepPreference: true });
       liveAudioPlayer.stop();
       audioPlayer.stop();
@@ -2302,6 +2267,8 @@ export function createChatController({
         chatState.apiKeyDraft = nextKey;
         chatState.isApiKeyPanelVisible = false;
         saveApiKey(nextKey);
+        clearInitialGreetingTimer();
+        shouldSendInitialGreeting = false;
         if (liveClient) {
           liveClient.disconnect();
         }
@@ -2320,6 +2287,8 @@ export function createChatController({
         chatState.apiKeyDraft = '';
         chatState.isApiKeyPanelVisible = !hasActiveChatApiKey();
         clearApiKey();
+        clearInitialGreetingTimer();
+        shouldSendInitialGreeting = false;
         liveClient?.disconnect();
         liveAudioPlayer.stop();
         hasSentInitialGreeting = false;
@@ -2607,6 +2576,8 @@ export function createChatController({
     },
     stop() {
       clearGroundedSearchTimers({ clearPending: true });
+      clearInitialGreetingTimer();
+      shouldSendInitialGreeting = false;
       liveClient?.disconnect();
       stopLiveMicrophone({ keepPreference: true });
       stopSpeechRecognition();
