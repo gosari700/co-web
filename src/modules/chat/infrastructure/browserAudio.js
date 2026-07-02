@@ -86,6 +86,8 @@ function formatMicrophoneError(error) {
   return '마이크 입력을 시작할 수 없습니다.';
 }
 
+const LIVE_AUDIO_GAIN = 1.0;
+
 export class BrowserAudioPlayer {
   constructor() {
     this.currentAudio = null;
@@ -223,7 +225,7 @@ export class BrowserLiveAudioPlayer {
         this.audioContext = new AudioContextCtor();
       }
       this.gainNode = this.audioContext.createGain();
-      this.gainNode.gain.value = 0.7;
+      this.gainNode.gain.value = LIVE_AUDIO_GAIN;
       this.gainNode.connect(this.audioContext.destination);
       this.nextStartTime = 0;
       this.activeSources.clear();
@@ -267,7 +269,7 @@ export class BrowserLiveAudioPlayer {
     }
 
     if (this.gainNode.gain.value === 0) {
-      this.gainNode.gain.value = 0.7;
+      this.gainNode.gain.value = LIVE_AUDIO_GAIN;
     }
 
     const binary = atob(base64Data);
