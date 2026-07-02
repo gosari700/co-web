@@ -31,7 +31,7 @@ function prepareHtml(html) {
   const styleTag = [
     '<style>',
     'html,body{margin:0!important;min-width:0!important;width:100%!important;max-width:100%!important;min-height:100%;background:#fff;overflow-x:hidden!important;overscroll-behavior:contain;touch-action:pan-y;}',
-    'body{overflow-y:auto!important;-webkit-overflow-scrolling:touch;touch-action:pan-y;}',
+    'body{overflow-y:auto!important;touch-action:pan-y;}',
     '*,*::before,*::after{box-sizing:border-box;max-width:100%;}',
     'img,video,canvas,svg,table{max-width:100%!important;}',
     '#kakaoWrap,#mArticle,#daumWrap,#daumContent,#kakaoContent,.wrap_dic,.wrap_search,.section_search,.list_search,.search_word,.box_word{min-width:0!important;width:100%!important;max-width:100%!important;overflow-x:hidden!important;}',
