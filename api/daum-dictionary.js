@@ -30,7 +30,7 @@ function prepareHtml(html) {
   const viewportTag = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
   const styleTag = [
     '<style>',
-    'html,body{margin:0!important;min-width:0!important;width:100%!important;max-width:100%!important;min-height:100%;background:#fff;overflow-x:hidden!important;overscroll-behavior:contain;touch-action:pan-y;}',
+    'html,body{margin:0!important;min-width:0!important;width:100%!important;max-width:100%!important;height:auto!important;min-height:0!important;background:#fff;overflow-x:hidden!important;overscroll-behavior:auto!important;touch-action:pan-y;}',
     'body{overflow-y:auto!important;touch-action:pan-y;}',
     '*,*::before,*::after{box-sizing:border-box;max-width:100%;}',
     'img,video,canvas,svg,table{max-width:100%!important;}',
@@ -38,12 +38,24 @@ function prepareHtml(html) {
     '#kakaoHead,#kakaoHead *,.wrap_gnb,.inner_head,#innerSearchContainer,#searchBar{position:static!important;top:auto!important;transform:none!important;-webkit-transform:none!important;}',
     '</style>',
   ].join('');
+  // 부모 문서가 iframe 높이를 콘텐츠 높이에 맞추도록 실제 높이를 postMessage로 보고한다.
+  const heightReporterTag = [
+    '<script>',
+    '(function(){',
+    'var lastHeight=0;',
+    'function report(){if(!document.body){return;}var height=Math.ceil(document.body.getBoundingClientRect().height);if(height>0&&height!==lastHeight){lastHeight=height;parent.postMessage({type:"daum-dictionary-height",height:height},"*");}}',
+    'function start(){report();if(window.ResizeObserver&&document.body){new ResizeObserver(report).observe(document.body);}window.addEventListener("load",report);}',
+    'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",start);}else{start();}',
+    '})();',
+    '</scr' + 'ipt>',
+  ].join('');
+  const injectedTags = `${baseTag}${viewportTag}${styleTag}${heightReporterTag}`;
 
   if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head([^>]*)>/i, `<head$1>${baseTag}${viewportTag}${styleTag}`);
+    return html.replace(/<head([^>]*)>/i, `<head$1>${injectedTags}`);
   }
 
-  return `${baseTag}${viewportTag}${styleTag}${html}`;
+  return `${injectedTags}${html}`;
 }
 
 function sendJson(response, status, body) {

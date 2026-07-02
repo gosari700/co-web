@@ -491,7 +491,9 @@ export function createChatController({
               <button type="button" data-action="dictionary-close" class="chat-dictionary-icon-button" aria-label="사전 닫기">×</button>
             </div>
           </div>
-          <iframe class="chat-dictionary-frame" title="Daum 영어 사전" referrerpolicy="no-referrer"></iframe>
+          <div class="chat-dictionary-scroll">
+            <iframe class="chat-dictionary-frame" title="Daum 영어 사전" referrerpolicy="no-referrer"></iframe>
+          </div>
           <section class="chat-dictionary-gemini-panel" aria-label="Gemini 사전 설명" hidden>
             <div class="chat-dictionary-gemini-content">
               <strong class="chat-dictionary-gemini-title"></strong>
@@ -526,6 +528,7 @@ export function createChatController({
     snapshotModal: layer.querySelector('.chat-snapshot-modal'),
     snapshotList: layer.querySelector('.chat-snapshot-list'),
     dictionaryPopup: layer.querySelector('.chat-dictionary-popup'),
+    dictionaryScroll: layer.querySelector('.chat-dictionary-scroll'),
     dictionaryFrame: layer.querySelector('.chat-dictionary-frame'),
     dictionaryGeminiPanel: layer.querySelector('.chat-dictionary-gemini-panel'),
     dictionaryGeminiButton: layer.querySelector('[data-action="dictionary-show-gemini"]'),
@@ -1754,6 +1757,11 @@ export function createChatController({
     chatState.dictionary = createDictionaryState();
   }
 
+  function resetDictionaryFrameViewport() {
+    elements.dictionaryFrame.style.height = '';
+    elements.dictionaryScroll.scrollTop = 0;
+  }
+
   function closeDictionary() {
     dictionaryRequestSeq += 1;
     resetDictionaryState();
@@ -1761,7 +1769,34 @@ export function createChatController({
       elements.dictionaryFrame.src = 'about:blank';
       delete elements.dictionaryFrame.dataset.dictionaryUrl;
     }
+    resetDictionaryFrameViewport();
     update();
+  }
+
+  // Daum 사전은 iframe 내부가 아니라 부모 스크롤 컨테이너(.chat-dictionary-scroll)가
+  // 스크롤을 담당한다. iframe 높이를 프록시 문서가 보고한 콘텐츠 높이에 맞춘다.
+  function handleDictionaryFrameMessage(event) {
+    const data = event.data;
+    if (!data || data.type !== 'daum-dictionary-height') {
+      return;
+    }
+    if (event.source !== elements.dictionaryFrame.contentWindow) {
+      return;
+    }
+    if (!elements.dictionaryFrame.dataset.dictionaryUrl) {
+      return;
+    }
+    const height = Number(data.height);
+    if (Number.isFinite(height) && height > 0) {
+      elements.dictionaryFrame.style.height = `${Math.ceil(height)}px`;
+    }
+  }
+
+  function handleDictionaryFrameLoad() {
+    // 외부(dic.daum.net 등)로 이동해 높이 보고가 불가능하면 컨테이너를 채우는 기본 높이로 복귀.
+    if (!elements.dictionaryFrame.contentDocument) {
+      elements.dictionaryFrame.style.height = '';
+    }
   }
 
   async function loadGeminiDictionary(word, requestId, { force = false } = {}) {
@@ -1856,7 +1891,7 @@ export function createChatController({
 
     if (!dictionary.isOpen || !dictionary.selectedWord) {
       elements.dictionaryGeminiPanel.hidden = true;
-      elements.dictionaryFrame.hidden = false;
+      elements.dictionaryScroll.hidden = false;
       elements.dictionaryGeminiButton.hidden = false;
       elements.dictionaryCloseButton.hidden = false;
       elements.dictionaryCloseButton.setAttribute('aria-label', '사전 닫기');
@@ -1869,11 +1904,12 @@ export function createChatController({
     }
 
     if (elements.dictionaryFrame.dataset.dictionaryUrl !== dictionary.daumUrl) {
+      resetDictionaryFrameViewport();
       elements.dictionaryFrame.src = dictionary.daumUrl;
       elements.dictionaryFrame.dataset.dictionaryUrl = dictionary.daumUrl;
     }
 
-    elements.dictionaryFrame.hidden = dictionary.isGeminiVisible;
+    elements.dictionaryScroll.hidden = dictionary.isGeminiVisible;
     elements.dictionaryGeminiPanel.hidden = !dictionary.isGeminiVisible;
     elements.dictionaryGeminiButton.hidden = dictionary.isGeminiVisible;
     elements.dictionaryCloseButton.hidden = false;
@@ -2559,6 +2595,8 @@ export function createChatController({
 
   layer.addEventListener('click', handleClick);
   layer.addEventListener('pointerdown', handlePointerDown);
+  elements.dictionaryFrame.addEventListener('load', handleDictionaryFrameLoad);
+  window.addEventListener('message', handleDictionaryFrameMessage);
   window.addEventListener('pointerdown', handleGlobalAudioUnlock, { passive: true });
   window.addEventListener('keydown', handleGlobalAudioUnlock);
 
@@ -2584,6 +2622,7 @@ export function createChatController({
       liveAudioPlayer.stop();
       audioPlayer.stop();
       speechSynthesizer.stop();
+      window.removeEventListener('message', handleDictionaryFrameMessage);
       window.removeEventListener('pointerdown', handleGlobalAudioUnlock);
       window.removeEventListener('keydown', handleGlobalAudioUnlock);
     },
@@ -2605,6 +2644,7 @@ export function createChatController({
           elements.dictionaryFrame.src = 'about:blank';
           delete elements.dictionaryFrame.dataset.dictionaryUrl;
         }
+        resetDictionaryFrameViewport();
         deactivateInputMic({ resumeMain: false });
       }
       update();
